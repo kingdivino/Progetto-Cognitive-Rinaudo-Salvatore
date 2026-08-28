@@ -75,13 +75,17 @@ def fetch_table_by_id(html: str, table_id: str) -> pd.DataFrame | None:
 
 
 def extract_deck_ids(df: pd.DataFrame) -> list[int]:
-    """Cerca in tutte le colonne testuali pattern tipo 'Nome #12345' ed estrae gli id."""
+    """Cerca in tutte le colonne testuali l'id del mazzo, che compare come cifre in
+    fondo alla stringa (es. 'Dragon Warrior #12321'). Non ci basiamo sul carattere '#'
+    letterale: sul sito reale non è un ASCII '#' standard (verificato: il match falliva
+    nonostante il testo sembrasse identico a occhio), quindi cerchiamo direttamente la
+    sequenza di cifre finale, qualsiasi carattere la preceda."""
     deck_ids = set()
-    pattern = re.compile(r"#(\d+)")
+    pattern = re.compile(r"(\d{3,})\D*$")
     for col in df.columns:
         if df[col].dtype == object:
             for val in df[col].dropna().astype(str):
-                m = pattern.search(val)
+                m = pattern.search(val.strip())
                 if m:
                     deck_ids.add(int(m.group(1)))
     return sorted(deck_ids)
