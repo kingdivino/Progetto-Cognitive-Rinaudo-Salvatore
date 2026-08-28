@@ -26,6 +26,7 @@ ATTENZIONE:
   script mette una pausa tra le richieste, NON aumentare la frequenza senza motivo.
 """
 
+import io
 import os
 import re
 import time
@@ -59,7 +60,10 @@ def fetch_table_by_id(html: str, table_id: str) -> pd.DataFrame | None:
     della pagina (più robusto: evita di raccogliere tabelle di layout/pubblicità
     che non c'entrano nulla)."""
     try:
-        tables = pd.read_html(html, attrs={"id": table_id})
+        # io.StringIO obbligatorio: passare la stringa HTML "nuda" fa sì che pandas
+        # provi a interpretarla come un percorso di file (os.path.isfile), il che su
+        # Windows va in OSError perché la stringa supera il limite di lunghezza path.
+        tables = pd.read_html(io.StringIO(html), attrs={"id": table_id})
     except ValueError as e:
         print(f"  [WARN] Nessuna tabella trovata con id='{table_id}': {e}")
         return None
