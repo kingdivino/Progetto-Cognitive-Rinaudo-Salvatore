@@ -1,0 +1,31 @@
+# --- Orchestrazione agente (richiesto dalle specifiche) ---
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-community>=0.3.0
+langchain-ollama>=0.2.0        # per usare Ollama (LLM locale) con LangChain/LangGraph
+
+# --- Search tool ---
+langchain-tavily>=0.1.0        # wrapper ufficiale LangChain per Tavily (ricerca web)
+
+# --- Knowledge Graph ---
+neo4j>=5.24.0                  # driver Python ufficiale per Neo4j
+langchain-experimental>=0.3.0  # contiene LLMGraphTransformer, per costruire il KG da testo
+
+# --- RAG ---
+sentence-transformers>=3.1.0   # embedding dei documenti
+faiss-cpu>=1.8.0                # vector search
+
+# --- Fine-tuning (PEFT/LoRA) ---
+transformers>=4.44.0
+peft>=0.13.0
+datasets>=3.0.0
+torch>=2.4.0
+scikit-learn>=1.5.0            # metriche di valutazione (F1, correlazione, ecc.)
+pandas>=2.2.0
+
+# --- Osservabilità (richiesto dalle specifiche) ---
+langsmith>=0.1.130
+
+# --- Utility ---
+python-dotenv>=1.0.1           # per leggere le chiavi API dal file .env
+jupyter>=1.1.0

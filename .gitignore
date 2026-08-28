@@ -1,0 +1,19 @@
+# Ambiente Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Chiavi e segreti — MAI committare
+.env
+
+# Dati grezzi pesanti (se troppo grandi per git, meglio non versionarli)
+data/raw/*
+!data/raw/.gitkeep
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
