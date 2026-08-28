@@ -103,8 +103,10 @@ def fetch_deck_code(deck_id: int) -> str | None:
 
 def decode_deck_code(deckstring: str):
     from hearthstone import deckstrings  # import qui: dipendenza opzionale, serve solo qui
-    cards, heroes, format_type = deckstrings.parse_deckstring(deckstring)
-    return cards, heroes, format_type  # cards: lista di (dbfId, count)
+    # Restituisce 4 valori, non 3 come indicava la doc riassunta inizialmente:
+    # cards, heroes, format_type, sideboards
+    cards, heroes, format_type, sideboards = deckstrings.parse_deckstring(deckstring)
+    return cards, heroes, format_type, sideboards  # cards: lista di (dbfId, count)
 
 
 def main():
@@ -127,9 +129,9 @@ def main():
         print(f"\nScarico mazzo #{deck_id} ({deck_row['deck_name_raw']}) ...")
         try:
             deckstring = fetch_deck_code(deck_id)
-            cards = heroes = format_type = None
+            cards = heroes = format_type = sideboards = None
             if deckstring:
-                cards, heroes, format_type = decode_deck_code(deckstring)
+                cards, heroes, format_type, sideboards = decode_deck_code(deckstring)
             rows.append({
                 "deck_id": deck_id,
                 "deck_name_raw": deck_row["deck_name_raw"],
@@ -138,6 +140,7 @@ def main():
                 "cards_dbfid_count": cards,
                 "heroes": heroes,
                 "format": format_type,
+                "sideboards": sideboards,
                 "scrape_date": date.today().isoformat(),
             })
         except Exception as e:
