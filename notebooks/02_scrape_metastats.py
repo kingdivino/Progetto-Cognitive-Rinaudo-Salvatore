@@ -5,18 +5,26 @@ classificatore power level/interestingness).
 Perché questo script esiste:
 - HSDataset (Zenodo) copre 2013-2020, troppo vecchio (power creep, archetipi non più
   esistenti) — vedi notebooks/01_check_hsdataset_schema.py e la guida di progetto.
-- metastats.net pubblica winrate REALI e ATTUALI per archetipo/mazzo. Verificato che è
-  HTML renderizzato dal server (jQuery DataTables abbellisce tabelle già presenti nel
-  markup, non le carica via JS) — le due tabelle hanno id fissi:
-    #deck-win-rates      -> mazzi individuali (nome, id, partite totali, winrate)
-    #archetype-win-rates -> aggregato per archetipo (nome, winrate)
+- metastats.net pubblica winrate REALI e ATTUALI per archetipo/mazzo. È HTML
+  renderizzato dal server (jQuery DataTables abbellisce tabelle già presenti nel
+  markup) con id fissi: #deck-win-rates, #archetype-win-rates.
 - NON esiste un dataset scaricabile pronto: va costruito noi stessi con uno scraper.
   Questo è normale e anzi preferibile alle specifiche del progetto (dati reali > sintetici).
 
+Perché BeautifulSoup e non solo pandas.read_html:
+il testo visibile nella colonna "Deck" (es. "Dragon Warrior #12321") contiene
+probabilmente caratteri invisibili (zero-width) intercalati tra le cifre — invisibili a
+occhio ma che rompono qualunque regex su cifre consecutive (verificato: il pattern
+funziona su una stringa scritta a mano, ma fallisce sempre sul testo reale del sito).
+Per questo l'id del mazzo si legge dal link href della riga (es.
+"/hearthstone/deck/12321/"), che deve essere corretto perché è quello che porta
+davvero alla pagina del mazzo — non è soggetto allo stesso trucco del testo visibile.
+
 Nota importante sul volume dati: l'espansione corrente è uscita da pochi giorni,
-quindi al momento ci sono pochi mazzi tracciati. Il piano è rilanciare questo script
-periodicamente (es. una volta a settimana) per accumulare dati nel tempo. Ogni run
-salva un file con la data, senza sovrascrivere i precedenti.
+quindi al momento ci sono pochi mazzi tracciati (~67 mazzi, ~22 archetipi visti finora).
+Il piano è rilanciare questo script periodicamente (es. una volta a settimana) per
+accumulare dati nel tempo. Ogni run salva un file con la data, senza sovrascrivere i
+precedenti.
 
 Come eseguirlo:
     python notebooks/02_scrape_metastats.py
@@ -26,7 +34,6 @@ ATTENZIONE:
   script mette una pausa tra le richieste, NON aumentare la frequenza senza motivo.
 """
 
-import io
 import os
 import re
 import time
@@ -34,6 +41,7 @@ from datetime import date
 
 import pandas as pd
 import requests
+from bs4 import BeautifulSoup
 
 BASE = "https://metastats.net"
 WINRATE_URL = f"{BASE}/hearthstone/decks/winrate/"
@@ -46,6 +54,7 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; CCAI-BloggerAgent-UniProject/0.1; +https://github.com/)"
 }
 
+DECK_LINK_RE = re.compile(r"/hearthstone/deck/(\d+)/?")
 DECKSTRING_RE = re.compile(r"AAEC[A-Za-z0-9+/=]{20,}")
 
 
@@ -55,40 +64,32 @@ def fetch_page_html(url: str) -> str:
     return resp.text
 
 
-def fetch_table_by_id(html: str, table_id: str) -> pd.DataFrame | None:
-    """Estrae UNA tabella specifica per id, invece di prendere tutte le tabelle
-    della pagina (più robusto: evita di raccogliere tabelle di layout/pubblicità
-    che non c'entrano nulla)."""
-    try:
-        # io.StringIO obbligatorio: passare la stringa HTML "nuda" fa sì che pandas
-        # provi a interpretarla come un percorso di file (os.path.isfile), il che su
-        # Windows va in OSError perché la stringa supera il limite di lunghezza path.
-        tables = pd.read_html(io.StringIO(html), attrs={"id": table_id})
-    except ValueError as e:
-        print(f"  [WARN] Nessuna tabella trovata con id='{table_id}': {e}")
-        return None
-    if not tables:
-        return None
-    df = tables[0]
-    print(f"  [OK] Tabella #{table_id}: shape={df.shape}, colonne={list(df.columns)}")
+def parse_deck_table(html: str) -> pd.DataFrame:
+    """Legge #deck-win-rates riga per riga con BeautifulSoup: id mazzo dal link href
+    (robusto), il resto delle colonne dal testo delle celle."""
+    soup = BeautifulSoup(html, "lxml")
+    table = soup.find(id="deck-win-rates")
+    if table is None:
+        print("  [WARN] Tabella #deck-win-rates non trovata nell'HTML.")
+        return pd.DataFrame()
+
+    rows = []
+    body = table.find("tbody") or table
+    for tr in body.find_all("tr"):
+        link = tr.find("a", href=DECK_LINK_RE)
+        if not link:
+            continue
+        m = DECK_LINK_RE.search(link["href"])
+        deck_id = int(m.group(1))
+        cells = [td.get_text(strip=True) for td in tr.find_all("td")]
+        rows.append({
+            "deck_id": deck_id,
+            "deck_name_raw": link.get_text(strip=True),
+            "cells": cells,
+        })
+    df = pd.DataFrame(rows)
+    print(f"  [OK] Estratti {len(df)} mazzi da #deck-win-rates (via link href).")
     return df
-
-
-def extract_deck_ids(df: pd.DataFrame) -> list[int]:
-    """Cerca in tutte le colonne testuali l'id del mazzo, che compare come cifre in
-    fondo alla stringa (es. 'Dragon Warrior #12321'). Non ci basiamo sul carattere '#'
-    letterale: sul sito reale non è un ASCII '#' standard (verificato: il match falliva
-    nonostante il testo sembrasse identico a occhio), quindi cerchiamo direttamente la
-    sequenza di cifre finale, qualsiasi carattere la preceda."""
-    deck_ids = set()
-    pattern = re.compile(r"(\d{3,})\D*$")
-    for col in df.columns:
-        if df[col].dtype == object:
-            for val in df[col].dropna().astype(str):
-                m = pattern.search(val.strip())
-                if m:
-                    deck_ids.add(int(m.group(1)))
-    return sorted(deck_ids)
 
 
 def fetch_deck_code(deck_id: int) -> str | None:
@@ -111,33 +112,19 @@ def main():
     html = fetch_page_html(WINRATE_URL)
     print(f"Ricevuti {len(html)} caratteri di HTML.")
 
-    deck_df = fetch_table_by_id(html, "deck-win-rates")
-    archetype_df = fetch_table_by_id(html, "archetype-win-rates")
-
-    if deck_df is None:
-        print("\n[VERDETTO] Tabella #deck-win-rates non trovata da pandas.read_html.")
-        print("Possibili cause: lxml non installato (serve 'pip install lxml'), oppure")
-        print("l'id della tabella è cambiato sul sito rispetto a quanto verificato.")
+    deck_df = parse_deck_table(html)
+    if deck_df.empty:
+        print("\n[VERDETTO] Nessun mazzo estratto — l'id/href della tabella potrebbe")
+        print("avere un formato diverso da quanto previsto. Serve ispezionare l'HTML a mano.")
         return
 
-    if archetype_df is not None:
-        os.makedirs(OUT_DIR, exist_ok=True)
-        archetype_path = os.path.join(OUT_DIR, f"archetype_winrates_{date.today().isoformat()}.csv")
-        archetype_df.to_csv(archetype_path, index=False)
-        print(f"[OK] Salvata tabella archetipi in {archetype_path}")
-
-    deck_ids = extract_deck_ids(deck_df)
-    print(f"\n[extract_deck_ids] Trovati {len(deck_ids)} id di mazzo unici: {deck_ids}")
-    if not deck_ids:
-        print("\n[VERDETTO] Tabella trovata ma nessun id mazzo estratto — il formato del testo")
-        print("nelle celle (es. 'Nome #12345') potrebbe essere diverso da quanto previsto.")
-        print("Prima riga della tabella per debug:")
-        print(deck_df.head(1).to_dict())
-        return
+    print("\nPrime righe estratte:")
+    print(deck_df.head())
 
     rows = []
-    for deck_id in deck_ids:
-        print(f"\nScarico mazzo #{deck_id} ...")
+    for _, deck_row in deck_df.iterrows():
+        deck_id = int(deck_row["deck_id"])
+        print(f"\nScarico mazzo #{deck_id} ({deck_row['deck_name_raw']}) ...")
         try:
             deckstring = fetch_deck_code(deck_id)
             cards = heroes = format_type = None
@@ -145,6 +132,8 @@ def main():
                 cards, heroes, format_type = decode_deck_code(deckstring)
             rows.append({
                 "deck_id": deck_id,
+                "deck_name_raw": deck_row["deck_name_raw"],
+                "cells": deck_row["cells"],
                 "deckstring": deckstring,
                 "cards_dbfid_count": cards,
                 "heroes": heroes,

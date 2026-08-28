@@ -32,5 +32,6 @@ jupyter>=1.1.0
 
 # --- Data collection per fine-tuning (metastats.net scraper) ---
 requests>=2.32.0
-lxml>=5.0.0                    # backend per pandas.read_html
+lxml>=5.0.0                    # backend per pandas.read_html e BeautifulSoup
+beautifulsoup4>=4.12.0          # parsing robusto: legge gli id mazzo dai link href, non dal testo visibile
 hearthstone>=9.0.0              # HearthSim: decodifica deckstrings (deck code -> lista carte)
