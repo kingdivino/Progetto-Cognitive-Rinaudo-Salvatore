@@ -17,3 +17,6 @@ data/raw/*
 # OS
 .DS_Store
 Thumbs.db
+
+# Output di debug degli script, non va versionato
+scrape_output.txt
