@@ -18,7 +18,7 @@ from langgraph.graph.message import add_messages
 from langchain_ollama import ChatOllama
 from langchain_core.tools import tool
 
-load_dotenv()  # legge il file .env
+load_dotenv(override=True)  # legge il file .env; override=True evita che variabili di sistema con lo stesso nome (es. una LANGSMITH_API_KEY vecchia impostata a livello Windows) abbiano precedenza silenziosa sul .env del progetto
 
 # 1. Lo STATE: cosa si porta dietro l'agente lungo il grafo.
 # "messages" è la cronologia della conversazione; add_messages sa come
