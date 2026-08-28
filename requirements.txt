@@ -29,3 +29,8 @@ langsmith>=0.1.130
 # --- Utility ---
 python-dotenv>=1.0.1           # per leggere le chiavi API dal file .env
 jupyter>=1.1.0
+
+# --- Data collection per fine-tuning (metastats.net scraper) ---
+requests>=2.32.0
+lxml>=5.0.0                    # backend per pandas.read_html
+hearthstone>=9.0.0              # HearthSim: decodifica deckstrings (deck code -> lista carte)
