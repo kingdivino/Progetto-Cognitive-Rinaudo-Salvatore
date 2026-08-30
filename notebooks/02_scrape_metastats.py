@@ -157,13 +157,24 @@ def main():
 
     cache = load_cache()
     all_ids = [int(x) for x in deck_df["deck_id"]]
-    new_ids = [i for i in all_ids if i not in cache]
-    cached_ids = [i for i in all_ids if i in cache]
+
+    def has_deckstring(entry: dict) -> bool:
+        return bool((entry.get("deckstring") or "").strip())
+
+    never_seen_ids = [i for i in all_ids if i not in cache]
+    # I mazzi già visti ma senza deck code trovato l'ultima volta vengono ritentati ad
+    # ogni esecuzione (non è detto sia un limite permanente di quella pagina) — solo
+    # quelli con decklist già decodificata vengono saltati per davvero.
+    retry_ids = [i for i in all_ids if i in cache and not has_deckstring(cache[i])]
+    new_ids = never_seen_ids + retry_ids
+    cached_ids = [i for i in all_ids if i in cache and has_deckstring(cache[i])]
 
     est_minutes = len(new_ids) * REQUEST_DELAY_SECONDS / 60
     log(f"\nMazzi totali trovati: {len(all_ids)}")
-    log(f"Già in cache dai run precedenti (skip): {len(cached_ids)}")
-    log(f"Da scaricare adesso: {len(new_ids)} (~{est_minutes:.1f} minuti stimati a {REQUEST_DELAY_SECONDS}s/richiesta)")
+    log(f"Già in cache con decklist valida (skip): {len(cached_ids)}")
+    log(f"Mai visti prima: {len(never_seen_ids)}")
+    log(f"Da ritentare (in cache ma senza deck code l'ultima volta): {len(retry_ids)}")
+    log(f"Da scaricare adesso in totale: {len(new_ids)} (~{est_minutes:.1f} minuti stimati a {REQUEST_DELAY_SECONDS}s/richiesta)")
 
     name_by_id = dict(zip(deck_df["deck_id"], deck_df["deck_name_raw"]))
     new_cache_rows = []
@@ -187,8 +198,13 @@ def main():
             log(f"  [ERROR] deck {deck_id}: {e}")
         time.sleep(REQUEST_DELAY_SECONDS)
 
-    # Unisce cache vecchia + nuova, salva
-    full_cache = list(cache.values()) + new_cache_rows
+    # Unisce cache vecchia + nuova: le entry ritentate SOSTITUISCONO quelle vecchie
+    # (stesso deck_id), non si accumulano — altrimenti la cache duplicherebbe righe
+    # ad ogni ritento.
+    cache_by_id = {int(k): v for k, v in cache.items()}
+    for row in new_cache_rows:
+        cache_by_id[int(row["deck_id"])] = row
+    full_cache = list(cache_by_id.values())
     save_cache(full_cache)
     log(f"\n[OK] Cache aggiornata: {len(full_cache)} mazzi totali in {CACHE_PATH}")
 
