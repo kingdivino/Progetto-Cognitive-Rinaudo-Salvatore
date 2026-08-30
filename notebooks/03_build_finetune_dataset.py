@@ -22,6 +22,15 @@ Cosa fa:
 4. Il winrate (%) è la LABEL (Y). Le partite giocate restano in output per poter
    filtrare/pesare gli esempi più avanti (fase di training).
 
+IMPORTANTE — cosa sono davvero i "dbfId" per mazzo: NON è il decklist completo da
+30 carte. metastats.net traccia le partite per archetipo (giocate da mazzi diversi
+tra loro) e pubblica solo le carte "firma" che definiscono l'archetipo — verificato
+decodificando a mano il deck code byte per byte (nessun byte avanza, quindi non è un
+problema di parsing). Le feature calcolate qui vanno quindi lette come statistiche sul
+PACCHETTO CORE dell'archetipo, non sul mazzo intero — comunque un segnale legittimo per
+un classificatore di power level, ma da descrivere onestamente nel report (punto 9 della
+guida fine-tuning: limiti del modello/dataset).
+
 Output: data/processed/finetune_dataset.csv
 
 Come eseguirlo:
@@ -188,7 +197,7 @@ def build_deck_features(row, card_lookup: dict) -> dict | None:
         classes_seen[card_class] = classes_seen.get(card_class, 0) + count
 
     if total_cards == 0:
-        return None
+        return None  # nessuna carta firma valida trovata per questo mazzo
 
     deck_class = max(
         ((c, n) for c, n in classes_seen.items() if c != "NEUTRAL"),
@@ -198,7 +207,7 @@ def build_deck_features(row, card_lookup: dict) -> dict | None:
     features = {
         "deck_id": row["deck_id"],
         "deck_class": deck_class,
-        "total_cards": total_cards,
+        "n_signature_cards": total_cards,  # NON il mazzo completo (30 carte) — vedi nota sopra
         "avg_cost": round(cost_sum / total_cards, 3),
         "avg_attack": round(sum(attack_values) / len(attack_values), 3) if attack_values else None,
         "avg_health": round(sum(health_values) / len(health_values), 3) if health_values else None,
