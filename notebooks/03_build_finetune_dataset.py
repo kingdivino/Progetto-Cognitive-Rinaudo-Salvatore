@@ -11,25 +11,23 @@ Cosa fa:
 1. Unisce tutti gli snapshot settimanali, deduplicando per deck_id (tiene la riga con
    più partite giocate = stima del winrate più affidabile — un mazzo con 40 partite ha
    un winrate molto più rumoroso di uno con 800).
-2. Scarta i mazzi senza decklist decodificata (niente deck code trovato sul sito, ~20%
-   dei casi osservati — non recuperabile da qui) e quelli sotto una soglia minima di
-   partite (MIN_GAMES) — sotto quella soglia il winrate è troppo rumoroso per essere
-   un target affidabile.
-3. Per ogni mazzo, incrocia i dbfId con HearthstoneJSON e costruisce le FEATURE (X):
-   curva di mana, conteggio per rarità/tipo, statistiche medie attacco/vita, classe,
-   presenza di meccaniche chiave (Taunt, Deathrattle, Battlecry, Rush, Divine Shield,
-   Combo, Lifesteal).
+2. Scarta i mazzi senza decklist letta dal sito (rari, non recuperabile da qui) e
+   quelli sotto una soglia minima di partite (MIN_GAMES) — sotto quella soglia il
+   winrate è troppo rumoroso per essere un target affidabile.
+3. Per ogni mazzo, incrocia gli id carta con HearthstoneJSON e costruisce le FEATURE
+   (X): curva di mana, conteggio per rarità/tipo, statistiche medie attacco/vita,
+   classe, presenza di meccaniche chiave (Taunt, Deathrattle, Battlecry, Rush, Divine
+   Shield, Combo, Lifesteal).
 4. Il winrate (%) è la LABEL (Y). Le partite giocate restano in output per poter
    filtrare/pesare gli esempi più avanti (fase di training).
 
-IMPORTANTE — cosa sono davvero i "dbfId" per mazzo: NON è il decklist completo da
-30 carte. metastats.net traccia le partite per archetipo (giocate da mazzi diversi
-tra loro) e pubblica solo le carte "firma" che definiscono l'archetipo — verificato
-decodificando a mano il deck code byte per byte (nessun byte avanza, quindi non è un
-problema di parsing). Le feature calcolate qui vanno quindi lette come statistiche sul
-PACCHETTO CORE dell'archetipo, non sul mazzo intero — comunque un segnale legittimo per
-un classificatore di power level, ma da descrivere onestamente nel report (punto 9 della
-guida fine-tuning: limiti del modello/dataset).
+NOTA sulla decklist: leggiamo le carte direttamente dal blocco HTML `ul.card-list`
+della pagina di dettaglio mazzo (id carta HearthstoneJSON ricavato dal filename
+dell'immagine + quantità), NON più dal "deck code" del sito. Verificato (30/08/2026)
+che il deck code ha un bug lato metastats.net: per molti mazzi codifica solo una
+manciata di carte anche quando la pagina mostra (e noi ora leggiamo) la decklist
+completa da 30 carte. Vedi il docstring di notebooks/02_scrape_metastats.py per i
+dettagli della verifica.
 
 Output: data/processed/finetune_dataset.csv
 
@@ -64,8 +62,8 @@ def log(msg: str):
 
 
 def safe_literal_eval(val):
-    """cells / cards_dbfid_count / heroes sono salvati nei CSV come repr() di liste
-    Python — vanno riletti con ast.literal_eval, non con json.loads (virgolette singole)."""
+    """cells / cards_id_count sono salvati nei CSV come repr() di liste Python —
+    vanno riletti con ast.literal_eval, non con json.loads (virgolette singole)."""
     if val is None or (isinstance(val, float)):  # NaN da pandas
         return None
     val = str(val).strip()
@@ -78,7 +76,9 @@ def safe_literal_eval(val):
 
 
 def download_hearthstonejson() -> dict:
-    """Scarica (o riusa la cache locale) il database completo delle carte, indicizzato per dbfId."""
+    """Scarica (o riusa la cache locale) il database completo delle carte, indicizzato
+    per id HearthstoneJSON (stringa, es. "CORE_DS1_185") — è lo stesso id che leggiamo
+    dal filename dell'immagine sulla pagina di metastats.net."""
     os.makedirs(HSJSON_DIR, exist_ok=True)
     if not os.path.exists(HSJSON_PATH):
         log(f"Scarico HearthstoneJSON da {HSJSON_URL} ...")
@@ -93,13 +93,13 @@ def download_hearthstonejson() -> dict:
     with open(HSJSON_PATH, encoding="utf-8") as f:
         cards = json.load(f)
 
-    by_dbfid = {}
+    by_id = {}
     for c in cards:
-        dbf = c.get("dbfId")
-        if dbf is not None:
-            by_dbfid[dbf] = c
-    log(f"Carte indicizzate per dbfId: {len(by_dbfid)}")
-    return by_dbfid
+        cid = c.get("id")
+        if cid:
+            by_id[cid] = c
+    log(f"Carte indicizzate per id: {len(by_id)}")
+    return by_id
 
 
 def card_mechanics(card: dict) -> set:
@@ -154,9 +154,9 @@ def load_all_snapshots() -> pd.DataFrame:
 
 
 def build_deck_features(row, card_lookup: dict) -> dict | None:
-    cards_raw = safe_literal_eval(row["cards_dbfid_count"])
+    cards_raw = safe_literal_eval(row["cards_id_count"])
     if not cards_raw:
-        return None  # niente decklist decodificata per questo mazzo
+        return None  # niente decklist letta per questo mazzo
 
     total_cards = 0
     cost_sum = 0
@@ -167,10 +167,10 @@ def build_deck_features(row, card_lookup: dict) -> dict | None:
     mechanic_counts = {f"n_{m.lower()}": 0 for m in MECHANICS_OF_INTEREST}
     classes_seen = {}
 
-    for dbf_id, count in cards_raw:
-        card = card_lookup.get(dbf_id)
+    for card_id, count in cards_raw:
+        card = card_lookup.get(card_id)
         if card is None:
-            continue  # carta non trovata (dbfId non nel dump scaricato, raro)
+            continue  # id carta non trovato nel dump scaricato (raro, es. carte rimosse/rinominate)
         total_cards += count
         cost = card.get("cost", 0) or 0
         cost_sum += cost * count
@@ -197,7 +197,7 @@ def build_deck_features(row, card_lookup: dict) -> dict | None:
         classes_seen[card_class] = classes_seen.get(card_class, 0) + count
 
     if total_cards == 0:
-        return None  # nessuna carta firma valida trovata per questo mazzo
+        return None  # nessuna carta valida trovata per questo mazzo
 
     deck_class = max(
         ((c, n) for c, n in classes_seen.items() if c != "NEUTRAL"),
@@ -207,7 +207,7 @@ def build_deck_features(row, card_lookup: dict) -> dict | None:
     features = {
         "deck_id": row["deck_id"],
         "deck_class": deck_class,
-        "n_signature_cards": total_cards,  # NON il mazzo completo (30 carte) — vedi nota sopra
+        "n_cards_total": total_cards,  # decklist completa (dovrebbe essere 30, vedi log dello scraper)
         "avg_cost": round(cost_sum / total_cards, 3),
         "avg_attack": round(sum(attack_values) / len(attack_values), 3) if attack_values else None,
         "avg_health": round(sum(health_values) / len(health_values), 3) if health_values else None,
@@ -238,15 +238,20 @@ def main():
     log(f"Dopo filtro games >= {MIN_GAMES}: {len(decks_df)} (scartati {before - len(decks_df)})")
 
     rows = []
-    skipped_no_deckstring = 0
+    skipped_no_cardlist = 0
+    non_30 = 0
     for _, row in decks_df.iterrows():
         feats = build_deck_features(row, card_lookup)
         if feats is None:
-            skipped_no_deckstring += 1
+            skipped_no_cardlist += 1
             continue
+        if feats["n_cards_total"] != 30:
+            non_30 += 1
         rows.append(feats)
 
-    log(f"Mazzi senza decklist decodificata (scartati): {skipped_no_deckstring}")
+    log(f"Mazzi senza decklist letta (scartati): {skipped_no_cardlist}")
+    if non_30:
+        log(f"[INFO] Mazzi con totale carte diverso da 30: {non_30} (controllare se legittimo, es. Quest particolari)")
     log(f"Mazzi nel dataset finale: {len(rows)}")
 
     out_df = pd.DataFrame(rows)

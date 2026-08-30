@@ -15,6 +15,19 @@ il testo visibile nella colonna "Deck" contiene caratteri invisibili (zero-width
 intercalati tra le cifre — invisibili a occhio ma che rompono qualunque regex su cifre
 consecutive. Per questo l'id del mazzo si legge dal link href della riga, non dal testo.
 
+IMPORTANTE — decklist: NON usiamo più il "deck code" (bottone "Copy Deck", stringa
+AAEC...). Verificato (30/08/2026) che quel deck code ha un BUG lato sito: per molti
+mazzi codifica solo una manciata di carte (es. 5 su 30), anche se la pagina mostra la
+decklist completa e corretta a fianco. Prova concreta: mazzo #36574 (Face Hunter), deck
+code copiato dal sito -> decodifica manuale byte per byte -> esattamente 5 carte, zero
+byte avanzati (quindi non un problema di parsing nostro: il deck code stesso è troncato
+alla fonte). La decklist vera e completa è invece nell'HTML in un blocco
+`<ul class="card-list"><li class="card-list-item">...` con, per ogni carta, l'id
+HearthstoneJSON (es. "CORE_DS1_185") ricavabile dal nome file dell'immagine
+(`https://art.hearthstonejson.com/.../<id>.png`) e la quantità in `.card-quantity`
+(es. "x2"). Verificato che la somma delle quantità torna sempre a 30. Questo rende
+anche inutile la libreria `hearthstone`/deckstrings: leggiamo le carte direttamente.
+
 Cache persistente (data/raw/metastats/deck_cache.csv):
 la DECKLIST di un mazzo con un certo id non cambia mai nel tempo (cambia solo quante
 partite/winrate ha nella tabella principale, che viene sempre riletta fresca). Quindi
@@ -32,10 +45,8 @@ ATTENZIONE:
 """
 
 import csv
-import io
 import os
 import re
-import sys
 import time
 from datetime import date
 
@@ -57,7 +68,6 @@ HEADERS = {
 }
 
 DECK_LINK_RE = re.compile(r"/hearthstone/deck/(\d+)/?")
-DECKSTRING_RE = re.compile(r"AAEC[A-Za-z0-9+/=]{20,}")
 
 SESSION = requests.Session()  # riusa la connessione TCP/TLS tra una richiesta e l'altra (più veloce, zero rischio in più per il sito)
 SESSION.headers.update(HEADERS)
@@ -109,7 +119,7 @@ def parse_deck_table(html: str) -> pd.DataFrame:
 
 
 def load_cache() -> dict:
-    """Carica la cache deck_id -> (deckstring, cards, heroes, format, sideboards) dai run precedenti."""
+    """Carica la cache deck_id -> {cards_id_count, first_seen} dai run precedenti."""
     if not os.path.exists(CACHE_PATH):
         return {}
     cache = {}
@@ -121,7 +131,7 @@ def load_cache() -> dict:
 
 def save_cache(cache_rows: list):
     os.makedirs(OUT_DIR, exist_ok=True)
-    fieldnames = ["deck_id", "deckstring", "cards_dbfid_count", "heroes", "format", "sideboards", "first_seen"]
+    fieldnames = ["deck_id", "cards_id_count", "first_seen"]
     with open(CACHE_PATH, "w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
@@ -129,26 +139,47 @@ def save_cache(cache_rows: list):
             writer.writerow({k: row.get(k, "") for k in fieldnames})
 
 
-def fetch_deck_code(deck_id: int) -> str | None:
+def fetch_deck_card_list(deck_id: int) -> list | None:
+    """Legge la decklist COMPLETA dalla pagina di dettaglio del mazzo, dal blocco
+    <ul class="card-list"><li class="card-list-item"> (non dal deck code, bacato lato
+    sito — vedi nota nel docstring del modulo). Ogni li contiene:
+      - l'immagine della carta, il cui filename è l'id HearthstoneJSON della carta
+        (es. .../CORE_DS1_185.png -> "CORE_DS1_185")
+      - la quantità in un div.card-quantity (es. "x2")
+    Ritorna una lista di tuple (card_id: str, quantity: int), oppure None se il blocco
+    non è presente (mazzi che a volte non espongono affatto una decklist sul sito).
+    """
     html = fetch_page_html(DECK_URL_TMPL.format(deck_id=deck_id))
-    matches = DECKSTRING_RE.findall(html)
-    if not matches:
-        log(f"  [WARN] Nessun deckstring trovato per deck {deck_id}.")
+    soup = BeautifulSoup(html, "lxml")
+    card_list = soup.find("ul", class_="card-list")
+    if card_list is None:
+        log(f"  [WARN] Nessuna decklist (ul.card-list) trovata per deck {deck_id}.")
         return None
-    if len(matches) > 1:
-        lengths = sorted(set(len(m) for m in matches))
-        log(f"  [INFO] Trovate {len(matches)} occorrenze di deckstring (lunghezze: {lengths})"
-            f" — uso la più lunga (probabilmente le altre sono versioni troncate in meta-tag/anteprime).")
-    # La stringa più lunga è quasi certamente quella corretta e completa: un deck code
-    # troncato (es. in un meta tag Open Graph) è più corto di quello vero nel bottone
-    # "Copy Deck".
-    return max(matches, key=len)
 
+    cards = []
+    for li in card_list.find_all("li", class_="card-list-item"):
+        img = li.find("img")
+        qty_div = li.find("div", class_="card-quantity")
+        if img is None or not img.get("src") or qty_div is None:
+            continue
+        card_id = os.path.splitext(os.path.basename(img["src"]))[0]
+        qty_text = qty_div.get_text(strip=True).lower().replace("x", "")
+        try:
+            qty = int(qty_text)
+        except ValueError:
+            continue
+        cards.append((card_id, qty))
 
-def decode_deck_code(deckstring: str):
-    from hearthstone import deckstrings  # import qui: dipendenza opzionale, serve solo qui
-    # Restituisce 4 valori: cards, heroes, format_type, sideboards
-    return deckstrings.parse_deckstring(deckstring)
+    if not cards:
+        log(f"  [WARN] Blocco card-list trovato ma vuoto per deck {deck_id}.")
+        return None
+
+    total = sum(q for _, q in cards)
+    if total != 30:
+        # non blocchiamo lo scraping per questo: alcuni mazzi (es. certe Quest) possono
+        # legittimamente avere un totale diverso, ma vale la pena saperlo.
+        log(f"  [INFO] Deck {deck_id}: totale carte = {total} (atteso di norma 30).")
+    return cards
 
 
 def main():
@@ -165,22 +196,22 @@ def main():
     cache = load_cache()
     all_ids = [int(x) for x in deck_df["deck_id"]]
 
-    def has_deckstring(entry: dict) -> bool:
-        return bool((entry.get("deckstring") or "").strip())
+    def has_cards(entry: dict) -> bool:
+        return bool((entry.get("cards_id_count") or "").strip())
 
     never_seen_ids = [i for i in all_ids if i not in cache]
-    # I mazzi già visti ma senza deck code trovato l'ultima volta vengono ritentati ad
+    # I mazzi già visti ma senza decklist trovata l'ultima volta vengono ritentati ad
     # ogni esecuzione (non è detto sia un limite permanente di quella pagina) — solo
-    # quelli con decklist già decodificata vengono saltati per davvero.
-    retry_ids = [i for i in all_ids if i in cache and not has_deckstring(cache[i])]
+    # quelli con decklist già letta vengono saltati per davvero.
+    retry_ids = [i for i in all_ids if i in cache and not has_cards(cache[i])]
     new_ids = never_seen_ids + retry_ids
-    cached_ids = [i for i in all_ids if i in cache and has_deckstring(cache[i])]
+    cached_ids = [i for i in all_ids if i in cache and has_cards(cache[i])]
 
     est_minutes = len(new_ids) * REQUEST_DELAY_SECONDS / 60
     log(f"\nMazzi totali trovati: {len(all_ids)}")
     log(f"Già in cache con decklist valida (skip): {len(cached_ids)}")
     log(f"Mai visti prima: {len(never_seen_ids)}")
-    log(f"Da ritentare (in cache ma senza deck code l'ultima volta): {len(retry_ids)}")
+    log(f"Da ritentare (in cache ma senza decklist l'ultima volta): {len(retry_ids)}")
     log(f"Da scaricare adesso in totale: {len(new_ids)} (~{est_minutes:.1f} minuti stimati a {REQUEST_DELAY_SECONDS}s/richiesta)")
 
     name_by_id = dict(zip(deck_df["deck_id"], deck_df["deck_name_raw"]))
@@ -188,23 +219,10 @@ def main():
     for idx, deck_id in enumerate(new_ids, start=1):
         log(f"\n[{idx}/{len(new_ids)}] Scarico mazzo #{deck_id} ({name_by_id.get(deck_id, '?')}) ...")
         try:
-            deckstring = fetch_deck_code(deck_id)
-            cards = heroes = format_type = sideboards = None
-            if deckstring:
-                cards, heroes, format_type, sideboards = decode_deck_code(deckstring)
-                # NOTA: il deck code pubblicato da metastats.net NON è il decklist completo da
-                # 30 carte (verificato decodificando a mano byte per byte: nessun byte avanza,
-                # la decodifica è corretta e completa). Il sito traccia migliaia di partite per
-                # archetipo giocate da mazzi leggermente diversi, quindi pubblica solo le carte
-                # "firma" che definiscono l'archetipo (spesso 5-25 carte), non un mazzo di un
-                # singolo giocatore. È materiale legittimo, va solo descritto per quello che è.
+            cards = fetch_deck_card_list(deck_id)
             new_cache_rows.append({
                 "deck_id": deck_id,
-                "deckstring": deckstring,
-                "cards_dbfid_count": cards,
-                "heroes": heroes,
-                "format": format_type,
-                "sideboards": sideboards,
+                "cards_id_count": cards,
                 "first_seen": date.today().isoformat(),
             })
         except Exception as e:
@@ -232,11 +250,7 @@ def main():
             "deck_id": deck_id,
             "deck_name_raw": deck_row["deck_name_raw"],
             "cells": deck_row["cells"],
-            "deckstring": cached.get("deckstring"),
-            "cards_dbfid_count": cached.get("cards_dbfid_count"),
-            "heroes": cached.get("heroes"),
-            "format": cached.get("format"),
-            "sideboards": cached.get("sideboards"),
+            "cards_id_count": cached.get("cards_id_count"),
             "scrape_date": date.today().isoformat(),
         })
 
