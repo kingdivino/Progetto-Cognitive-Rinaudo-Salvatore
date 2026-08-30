@@ -192,6 +192,10 @@ def main():
             cards = heroes = format_type = sideboards = None
             if deckstring:
                 cards, heroes, format_type, sideboards = decode_deck_code(deckstring)
+                total = sum(c for _, c in cards) if cards else 0
+                if not (28 <= total <= 40):  # un mazzo standard ha 30 carte, tolleranza per formati speciali
+                    log(f"  [WARN] Deck {deck_id}: {total} carte totali decodificate, atteso ~30 —"
+                        f" deckstring probabilmente troncato o mal estratto, controllare a mano.")
             new_cache_rows.append({
                 "deck_id": deck_id,
                 "deckstring": deckstring,
