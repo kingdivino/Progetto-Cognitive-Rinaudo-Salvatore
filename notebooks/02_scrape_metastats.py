@@ -131,11 +131,18 @@ def save_cache(cache_rows: list):
 
 def fetch_deck_code(deck_id: int) -> str | None:
     html = fetch_page_html(DECK_URL_TMPL.format(deck_id=deck_id))
-    match = DECKSTRING_RE.search(html)
-    if not match:
+    matches = DECKSTRING_RE.findall(html)
+    if not matches:
         log(f"  [WARN] Nessun deckstring trovato per deck {deck_id}.")
         return None
-    return match.group(0)
+    if len(matches) > 1:
+        lengths = sorted(set(len(m) for m in matches))
+        log(f"  [INFO] Trovate {len(matches)} occorrenze di deckstring (lunghezze: {lengths})"
+            f" — uso la più lunga (probabilmente le altre sono versioni troncate in meta-tag/anteprime).")
+    # La stringa più lunga è quasi certamente quella corretta e completa: un deck code
+    # troncato (es. in un meta tag Open Graph) è più corto di quello vero nel bottone
+    # "Copy Deck".
+    return max(matches, key=len)
 
 
 def decode_deck_code(deckstring: str):
