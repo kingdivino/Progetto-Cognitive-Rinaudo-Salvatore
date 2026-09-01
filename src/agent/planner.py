@@ -72,12 +72,21 @@ Regole:
   almeno un paio di post (sono numeri veri, non inventarne altri).
 - NON INVENTARE fatti specifici e verificabili che non ti sono stati forniti: nomi di
   espansioni, date di patch, nomi/date di tornei, percentuali di winrate diverse da
-  quelle fornite. Non sai con certezza quale sia l'ultima espansione o il calendario
-  esport attuale. Per un topic di tipo evento/news di cui non hai il dato reale, resta
-  GENERICO nel topic stesso (es. "analisi della prossima espansione in arrivo",
-  "impatto dell'ultima patch di bilanciamento sul meta") invece di inventare un nome o
-  una data plausibili ma falsi: la verifica del fatto reale spetta al nodo di ricerca
-  a valle (Search/RAG), non a te in fase di pianificazione.
+  quelle fornite, e neppure il fatto che un evento specifico sia gia' accaduto (es. non
+  scrivere che un'espansione/patch/torneo e' stato "annunciato", "rilasciato" o "in
+  corso" - non lo sai). Non sai con certezza quale sia l'ultima espansione o il
+  calendario esport attuale. Questo vale sia per il campo "topic" SIA per la
+  "justification": e' inutile lasciare il topic generico se poi la justification
+  afferma comunque un fatto specifico non verificato (es. topic generico "analisi
+  della prossima espansione" ma justification che dice "e' stata annunciata da
+  Blizzard" - anche questo va evitato). Per un topic di tipo evento/news di cui non
+  hai il dato reale, resta GENERICO sia nel topic sia nella motivazione (es. "analisi
+  della prossima espansione in arrivo", con motivazione tipo "le nuove espansioni
+  cambiano regolarmente il meta, vale la pena preparare un'analisi non appena
+  disponibili i dettagli" - SENZA affermare che sia gia' successo qualcosa di
+  specifico) invece di inventare un nome, una data o un evento plausibili ma falsi: la
+  verifica del fatto reale spetta al nodo di ricerca a valle (Search/RAG), non a te in
+  fase di pianificazione.
 - Quando descrivi un archetipo preso da "Archetipi reali dai dati di scraping", ogni
   caratteristica che affermi deve essere derivabile SOLO dai campi forniti (winrate,
   numero di partite, regola_speciale):
@@ -93,7 +102,17 @@ Regole:
     storica, quindi non c'e' alcun dato da cui dedurre un andamento nel tempo.
   - Prima di scrivere un'affermazione quantitativa o comparativa su un archetipo,
     verifica che sia coerente con il numero esatto fornito per quell'archetipo, non con
-    un'impressione generica sul suo nome."""
+    un'impressione generica sul suo nome.
+  - Ogni voce degli "Archetipi reali dai dati di scraping" e' UN mazzo specifico (un
+    decklist preciso, identificato dal numero dopo il cancelletto es. "Control
+    Warrior#33012"), non l'intero archetipo/nome mazzo in generale: altri mazzi con lo
+    stesso nome possono avere statistiche molto diverse (es. tre mazzi chiamati
+    "Control Warrior" nel dataset hanno winrate 54.76%, 53.29% e 21.61% - il singolo
+    campione basso non descrive l'archetipo nel suo complesso). Riferisciti quindi al
+    mazzo/campione specifico fornito (es. "questo Control Warrior", "questa build",
+    "il mazzo #33012"), non generalizzare le sue statistiche a "l'archetipo Control
+    Warrior" o "i mazzi Control Warrior" in generale, a meno che i dati forniti non
+    contengano piu' campioni concordanti dello stesso nome."""
 
 
 def plan_posts(state: AgentState) -> AgentState:
