@@ -78,15 +78,22 @@ Regole:
   "impatto dell'ultima patch di bilanciamento sul meta") invece di inventare un nome o
   una data plausibili ma falsi: la verifica del fatto reale spetta al nodo di ricerca
   a valle (Search/RAG), non a te in fase di pianificazione.
-- Quando descrivi un archetipo preso da "Archetipi reali dai dati di scraping", usa
-  SOLO le caratteristiche presenti in quei dati (winrate, numero di partite,
-  regola_speciale) - non aggiungere affermazioni su popolarita', tendenza (in
-  crescita/in calo) o rilevanza nel meta che i dati forniti non supportano. Un
-  winrate basso NON significa che l'archetipo sia popolare o forte: non invertire il
-  significato dei numeri forniti. Se non hai un dato esplicito sulla popolarita' di un
-  archetipo, non affermarla (es. non scrivere "molto popolare" o "molto giocato" se
-  non e' un dato che ti e' stato dato - il numero di partite osservate non e' una
-  misura di popolarita' generale)."""
+- Quando descrivi un archetipo preso da "Archetipi reali dai dati di scraping", ogni
+  caratteristica che affermi deve essere derivabile SOLO dai campi forniti (winrate,
+  numero di partite, regola_speciale):
+  - "popolarita'" o "quanto e' giocato" puoi stimarli SOLO confrontando il numero di
+    partite di un archetipo con quello degli ALTRI archetipi forniti nella stessa lista
+    (es. numero di partite alto rispetto agli altri = relativamente piu' popolare/
+    giocato in questo campione; numero basso rispetto agli altri = relativamente meno
+    popolare). Non usare MAI il winrate come indicatore di popolarita' o forza: sono
+    dati indipendenti, un winrate basso non implica ne' un archetipo debole ne' uno
+    popolare.
+  - NON affermare una "tendenza" (in crescita, in calo, in aumento di recente) per
+    nessun archetipo: i dati forniti sono uno scatto in un solo momento, non una serie
+    storica, quindi non c'e' alcun dato da cui dedurre un andamento nel tempo.
+  - Prima di scrivere un'affermazione quantitativa o comparativa su un archetipo,
+    verifica che sia coerente con il numero esatto fornito per quell'archetipo, non con
+    un'impressione generica sul suo nome."""
 
 
 def plan_posts(state: AgentState) -> AgentState:
