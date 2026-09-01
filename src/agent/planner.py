@@ -176,11 +176,21 @@ def plan_posts(state: AgentState) -> AgentState:
 
     n_posts = state.get("planning_info", {}).get("n_posts", DEFAULT_N_POSTS)
 
-    llm = ChatOllama(
+    # num_gpu = quanti layer del modello mandare sulla GPU (nome fuorviante: NON e'
+    # il numero di GPU). Lasciato non impostato (None) di default: Ollama stima da solo
+    # quanti layer entrano in VRAM, in modo prudente. Su hardware con poca VRAM dedicata
+    # (es. 4GB) puo' lasciare margine libero non sfruttato - override manuale via
+    # OLLAMA_NUM_GPU nel .env se si osserva VRAM libera con `ollama ps` durante un run
+    # (vedi commento in .env.example per come tarare il valore).
+    _num_gpu_override = os.environ.get("OLLAMA_NUM_GPU")
+    llm_kwargs = dict(
         model=os.environ.get("OLLAMA_MODEL", "llama3.1:8b"),
         base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
         temperature=0.4,
     )
+    if _num_gpu_override:
+        llm_kwargs["num_gpu"] = int(_num_gpu_override)
+    llm = ChatOllama(**llm_kwargs)
     structured_llm = llm.with_structured_output(PostPlan)
 
     prompt = ChatPromptTemplate.from_messages([
