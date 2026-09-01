@@ -77,7 +77,16 @@ Regole:
   GENERICO nel topic stesso (es. "analisi della prossima espansione in arrivo",
   "impatto dell'ultima patch di bilanciamento sul meta") invece di inventare un nome o
   una data plausibili ma falsi: la verifica del fatto reale spetta al nodo di ricerca
-  a valle (Search/RAG), non a te in fase di pianificazione."""
+  a valle (Search/RAG), non a te in fase di pianificazione.
+- Quando descrivi un archetipo preso da "Archetipi reali dai dati di scraping", usa
+  SOLO le caratteristiche presenti in quei dati (winrate, numero di partite,
+  regola_speciale) - non aggiungere affermazioni su popolarita', tendenza (in
+  crescita/in calo) o rilevanza nel meta che i dati forniti non supportano. Un
+  winrate basso NON significa che l'archetipo sia popolare o forte: non invertire il
+  significato dei numeri forniti. Se non hai un dato esplicito sulla popolarita' di un
+  archetipo, non affermarla (es. non scrivere "molto popolare" o "molto giocato" se
+  non e' un dato che ti e' stato dato - il numero di partite osservate non e' una
+  misura di popolarita' generale)."""
 
 
 def plan_posts(state: AgentState) -> AgentState:
