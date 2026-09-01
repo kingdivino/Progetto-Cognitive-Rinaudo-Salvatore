@@ -52,6 +52,12 @@ OUT_DIR = os.path.join("data", "processed")
 OUT_PATH = os.path.join(OUT_DIR, "finetune_dataset.csv")
 
 MIN_GAMES = 30  # sotto questa soglia il winrate è considerato troppo rumoroso
+# metastats.net traccia anche modalita' non-Standard con dimensioni di mazzo diverse da
+# 30 (es. Twist da 20 carte, format speciali "Puzzle Lab" da 40 carte, verificato aprendo
+# le pagine a mano il 01/09/2026 - non e' un bug dello scraper, sono mazzi reali). Li
+# escludiamo per tenere il classificatore su un confronto omogeneo (mazzi Standard/Wild
+# costruiti con le regole normali a 30 carte).
+EXPECTED_DECK_SIZE = 30
 MECHANICS_OF_INTEREST = [
     "TAUNT", "DEATHRATTLE", "BATTLECRY", "RUSH", "DIVINE_SHIELD", "COMBO", "LIFESTEAL",
 ]
@@ -239,19 +245,19 @@ def main():
 
     rows = []
     skipped_no_cardlist = 0
-    non_30 = 0
+    skipped_non_standard_size = 0
     for _, row in decks_df.iterrows():
         feats = build_deck_features(row, card_lookup)
         if feats is None:
             skipped_no_cardlist += 1
             continue
-        if feats["n_cards_total"] != 30:
-            non_30 += 1
+        if feats["n_cards_total"] != EXPECTED_DECK_SIZE:
+            skipped_non_standard_size += 1
+            continue
         rows.append(feats)
 
     log(f"Mazzi senza decklist letta (scartati): {skipped_no_cardlist}")
-    if non_30:
-        log(f"[INFO] Mazzi con totale carte diverso da 30: {non_30} (controllare se legittimo, es. Quest particolari)")
+    log(f"Mazzi con formato non-Standard, dimensione != {EXPECTED_DECK_SIZE} (scartati, vedi nota su EXPECTED_DECK_SIZE): {skipped_non_standard_size}")
     log(f"Mazzi nel dataset finale: {len(rows)}")
 
     out_df = pd.DataFrame(rows)
