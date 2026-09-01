@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+from typing import Literal
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import ChatOllama
@@ -38,7 +39,13 @@ DEFAULT_N_POSTS = 6  # >2 di proposito: le "lezioni apprese da GymAssistant" nel
 
 
 class PlannedPost(BaseModel):
-    tipo: str = Field(description="uno tra: evento, how-to, review, news")
+    # Literal invece di str: constraint imposto dallo schema (Ollama/Pydantic
+    # rifiutano/ricampionano un valore fuori da questi 4), non delegato interamente
+    # all'LLM che seguendo solo l'istruzione testuale ha talvolta prodotto "event"
+    # invece di "evento" (osservato nel run del 01/09/2026 con qwen3:14b).
+    tipo: Literal["evento", "how-to", "review", "news"] = Field(
+        description="uno tra: evento, how-to, review, news (esattamente queste 4 stringhe)"
+    )
     topic: str = Field(description="argomento specifico e concreto del post, non generico")
     justification: str = Field(
         description="perche' questo post ora: gap di copertura nel KG, rilevanza dei "
