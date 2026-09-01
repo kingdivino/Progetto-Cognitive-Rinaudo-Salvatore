@@ -13,7 +13,11 @@ Cosa fa:
    un winrate molto più rumoroso di uno con 800).
 2. Scarta i mazzi senza decklist letta dal sito (rari, non recuperabile da qui) e
    quelli sotto una soglia minima di partite (MIN_GAMES) — sotto quella soglia il
-   winrate è troppo rumoroso per essere un target affidabile.
+   winrate è troppo rumoroso per essere un target affidabile. NON scarta più i mazzi
+   con Azalina Soulsever (20 carte) o Timethief Rafaam (40 carte) — vedi nota sotto:
+   sono inclusi con n_cards_total e has_special_deckbuild come feature esplicite,
+   invece di essere buttati via (dataset già piccolo, e altrimenti non avremmo modo
+   di valutare il power level proprio delle due carte che cambiano più le regole).
 3. Per ogni mazzo, incrocia gli id carta con HearthstoneJSON e costruisce le FEATURE
    (X): curva di mana, conteggio per rarità/tipo, statistiche medie attacco/vita,
    classe, presenza di meccaniche chiave (Taunt, Deathrattle, Battlecry, Rush, Divine
@@ -28,6 +32,18 @@ che il deck code ha un bug lato metastats.net: per molti mazzi codifica solo una
 manciata di carte anche quando la pagina mostra (e noi ora leggiamo) la decklist
 completa da 30 carte. Vedi il docstring di notebooks/02_scrape_metastats.py per i
 dettagli della verifica.
+
+NOTA su Azalina Soulsever / Timethief Rafaam (01/09/2026): due leggendarie (Priest e
+Warlock) cambiano davvero le regole di costruzione del mazzo per chi le include
+(rispettivamente 20 e 40 carte invece di 30 — verificato sul testo ufficiale delle
+carte). Un primo tentativo li escludeva dal dataset per confrontare solo mazzi da 30
+carte; su segnalazione dell'utente si è deciso di tenerli: il dataset è già piccolo
+(poche centinaia di mazzi) e buttare via il ~12% dei dati vuol dire anche non avere
+mai un esempio per valutare il power level dei mazzi costruiti proprio intorno a
+queste due carte. Restano però strutturalmente diversi (base di conteggio diversa),
+quindi sono segnalati con `n_cards_total` (dimensione reale) e `has_special_deckbuild`
+(booleano) come feature esplicite, cosicché il modello possa imparare a tenerne conto
+invece di confrontarli alla cieca con un mazzo da 30.
 
 Output: data/processed/finetune_dataset.csv
 
@@ -52,19 +68,9 @@ OUT_DIR = os.path.join("data", "processed")
 OUT_PATH = os.path.join(OUT_DIR, "finetune_dataset.csv")
 
 MIN_GAMES = 30  # sotto questa soglia il winrate è considerato troppo rumoroso
-# Alcuni mazzi hanno legittimamente una dimensione diversa da 30 - non e' un bug dello
-# scraper, e non e' nemmeno un "formato alternativo del sito" (ipotesi iniziale, poi
-# rivelatasi imprecisa): sono normali mazzi Standard/Wild che includono una specifica
-# carta leggendaria che cambia le regole di costruzione del mazzo per chi la gioca:
-#   - Azalina Soulsever (Priest): "Your deck is 20 cards, plus 20 copied from your
-#     enemy" -> il giocatore ne costruisce solo 20, le altre 20 arrivano dall'avversario
-#     durante la partita (non sono una scelta del mazzo, giusto che metastats.net non le
-#     tracci)
-#   - Timethief Rafaam (Warlock, keyword "Fabled+"): "Your deck size is 40, but has 10
-#     Rafaams!" -> permette fino a 10 copie di leggendarie "Rafaam" in un mazzo da 40
-# Li escludiamo comunque per tenere il classificatore su un confronto omogeneo (curva di
-# mana, conteggi per rarita'/tipo calcolati sulla stessa base per tutti i mazzi).
-EXPECTED_DECK_SIZE = 30
+# Carte che cambiano le regole di costruzione del mazzo (vedi nota nel docstring del
+# modulo) - usate per marcare i mazzi con has_special_deckbuild, non per scartarli.
+SPECIAL_DECKBUILD_CARD_NAMES = {"Azalina Soulsever", "Timethief Rafaam"}
 MECHANICS_OF_INTEREST = [
     "TAUNT", "DEATHRATTLE", "BATTLECRY", "RUSH", "DIVINE_SHIELD", "COMBO", "LIFESTEAL",
 ]
@@ -113,6 +119,17 @@ def download_hearthstonejson() -> dict:
             by_id[cid] = c
     log(f"Carte indicizzate per id: {len(by_id)}")
     return by_id
+
+
+def find_special_deckbuild_ids(card_lookup: dict) -> set:
+    """Trova gli id HearthstoneJSON delle carte in SPECIAL_DECKBUILD_CARD_NAMES,
+    cercando per nome invece di hardcodare gli id (piu' robusto a rotazioni/ristampe)."""
+    ids = {c["id"] for c in card_lookup.values() if c.get("name") in SPECIAL_DECKBUILD_CARD_NAMES}
+    found_names = {card_lookup[i].get("name") for i in ids}
+    missing = SPECIAL_DECKBUILD_CARD_NAMES - found_names
+    if missing:
+        log(f"  [WARN] Non trovate in HearthstoneJSON: {missing} (nome cambiato? controllare SPECIAL_DECKBUILD_CARD_NAMES)")
+    return ids
 
 
 def card_mechanics(card: dict) -> set:
@@ -166,12 +183,13 @@ def load_all_snapshots() -> pd.DataFrame:
     return all_df
 
 
-def build_deck_features(row, card_lookup: dict) -> dict | None:
+def build_deck_features(row, card_lookup: dict, special_ids: set) -> dict | None:
     cards_raw = safe_literal_eval(row["cards_id_count"])
     if not cards_raw:
         return None  # niente decklist letta per questo mazzo
 
     total_cards = 0
+    has_special_deckbuild = False
     cost_sum = 0
     counts_by_type = {"MINION": 0, "SPELL": 0, "WEAPON": 0, "LOCATION": 0, "OTHER": 0}
     counts_by_rarity = {"COMMON": 0, "RARE": 0, "EPIC": 0, "LEGENDARY": 0, "OTHER": 0}
@@ -184,6 +202,8 @@ def build_deck_features(row, card_lookup: dict) -> dict | None:
         card = card_lookup.get(card_id)
         if card is None:
             continue  # id carta non trovato nel dump scaricato (raro, es. carte rimosse/rinominate)
+        if card_id in special_ids:
+            has_special_deckbuild = True
         total_cards += count
         cost = card.get("cost", 0) or 0
         cost_sum += cost * count
@@ -220,7 +240,8 @@ def build_deck_features(row, card_lookup: dict) -> dict | None:
     features = {
         "deck_id": row["deck_id"],
         "deck_class": deck_class,
-        "n_cards_total": total_cards,  # decklist completa (dovrebbe essere 30, vedi log dello scraper)
+        "n_cards_total": total_cards,  # 30 di norma; 20/40 per Azalina Soulsever/Timethief Rafaam (vedi nota sopra)
+        "has_special_deckbuild": has_special_deckbuild,  # True se il mazzo include una carta che cambia le regole di costruzione
         "avg_cost": round(cost_sum / total_cards, 3),
         "avg_attack": round(sum(attack_values) / len(attack_values), 3) if attack_values else None,
         "avg_health": round(sum(health_values) / len(health_values), 3) if health_values else None,
@@ -244,6 +265,7 @@ def build_deck_features(row, card_lookup: dict) -> dict | None:
 
 def main():
     card_lookup = download_hearthstonejson()
+    special_ids = find_special_deckbuild_ids(card_lookup)
     decks_df = load_all_snapshots()
 
     before = len(decks_df)
@@ -252,19 +274,18 @@ def main():
 
     rows = []
     skipped_no_cardlist = 0
-    skipped_non_standard_size = 0
+    n_special = 0
     for _, row in decks_df.iterrows():
-        feats = build_deck_features(row, card_lookup)
+        feats = build_deck_features(row, card_lookup, special_ids)
         if feats is None:
             skipped_no_cardlist += 1
             continue
-        if feats["n_cards_total"] != EXPECTED_DECK_SIZE:
-            skipped_non_standard_size += 1
-            continue
+        if feats["has_special_deckbuild"]:
+            n_special += 1
         rows.append(feats)
 
     log(f"Mazzi senza decklist letta (scartati): {skipped_no_cardlist}")
-    log(f"Mazzi con formato non-Standard, dimensione != {EXPECTED_DECK_SIZE} (scartati, vedi nota su EXPECTED_DECK_SIZE): {skipped_non_standard_size}")
+    log(f"Mazzi con regole di costruzione speciali (inclusi, non scartati - vedi has_special_deckbuild): {n_special}")
     log(f"Mazzi nel dataset finale: {len(rows)}")
 
     out_df = pd.DataFrame(rows)
