@@ -113,7 +113,26 @@ Regole:
     mazzo/campione specifico fornito (es. "questo Control Warrior", "questa build",
     "il mazzo #33012"), non generalizzare le sue statistiche a "l'archetipo Control
     Warrior" o "i mazzi Control Warrior" in generale, a meno che i dati forniti non
-    contengano piu' campioni concordanti dello stesso nome."""
+    contengano piu' campioni concordanti dello stesso nome.
+  - Il campo "regola_speciale" indica che il mazzo usa una regola di costruzione non
+    standard (dimensione di 20 o 40 carte invece delle 30 tipiche) dovuta a una carta
+    leggendaria specifica (es. Azalina Soulsever o Timethief Rafaam) che altera quante
+    carte si costruiscono. Quando lo citi in topic/justification, descrivilo con parole
+    tue (es. "una regola di costruzione mazzo non standard", "una meccanica che
+    modifica la dimensione del mazzo") invece di scrivere letteralmente il nome del
+    campo "regola_speciale" tra virgolette, che e' un'etichetta interna dei dati, non
+    un termine che i lettori del blog riconoscerebbero.
+  - PRIMA di scrivere che un valore e' "unico", "il solo" o "l'unico" tra gli archetipi
+    forniti (es. "l'unico mazzo con regola_speciale attiva", "l'unico archetipo con
+    winrate sotto il 30%"), controlla ESPLICITAMENTE ogni singola voce della lista
+    fornita per verificare che nessun'altra voce condivida quel valore. Non assumere
+    l'unicita' guardando solo la voce di cui stai scrivendo: un'affermazione di
+    unicita' sbagliata e' un errore grave perche' contraddice dati che hai gia'
+    ricevuto nello stesso messaggio.
+  - Gli "Archetipi reali dai dati di scraping" sono un CAMPIONE (una manciata di
+    mazzi selezionati), non l'intero dataset di scraping: non scrivere affermazioni
+    tipo "nel dataset" o "nel meta attuale" quando intendi solo il campione che ti e'
+    stato fornito - usa invece "tra gli archetipi forniti" o "in questo campione"."""
 
 
 def plan_posts(state: AgentState) -> AgentState:
