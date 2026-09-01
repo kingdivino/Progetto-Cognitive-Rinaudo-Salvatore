@@ -57,7 +57,8 @@ PLANNER_SYSTEM_PROMPT = """Sei il planner editoriale di un blog su Hearthstone (
 Il tuo compito e' pianificare una sequenza di {n_posts} post futuri, diversificati e non ripetitivi.
 
 Tipi di post ammessi (usa esattamente queste etichette in "tipo"):
-- evento: tornei/esport, uscita espansioni, patch di bilanciamento
+- evento: tornei/esport, uscita espansioni, patch di bilanciamento, eventi in-game a
+  tempo (es. percorsi/tracker con missioni e ricompense aggiuntive che escono a rotazione)
 - how-to: guide a mazzi/archetipi specifici, mulligan guide
 - review: review di espansioni, carte o meccaniche nuove
 - news: cambi di meta dopo una patch, nerf/buff
