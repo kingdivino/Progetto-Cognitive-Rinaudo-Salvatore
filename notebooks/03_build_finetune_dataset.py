@@ -52,11 +52,18 @@ OUT_DIR = os.path.join("data", "processed")
 OUT_PATH = os.path.join(OUT_DIR, "finetune_dataset.csv")
 
 MIN_GAMES = 30  # sotto questa soglia il winrate è considerato troppo rumoroso
-# metastats.net traccia anche modalita' non-Standard con dimensioni di mazzo diverse da
-# 30 (es. Twist da 20 carte, format speciali "Puzzle Lab" da 40 carte, verificato aprendo
-# le pagine a mano il 01/09/2026 - non e' un bug dello scraper, sono mazzi reali). Li
-# escludiamo per tenere il classificatore su un confronto omogeneo (mazzi Standard/Wild
-# costruiti con le regole normali a 30 carte).
+# Alcuni mazzi hanno legittimamente una dimensione diversa da 30 - non e' un bug dello
+# scraper, e non e' nemmeno un "formato alternativo del sito" (ipotesi iniziale, poi
+# rivelatasi imprecisa): sono normali mazzi Standard/Wild che includono una specifica
+# carta leggendaria che cambia le regole di costruzione del mazzo per chi la gioca:
+#   - Azalina Soulsever (Priest): "Your deck is 20 cards, plus 20 copied from your
+#     enemy" -> il giocatore ne costruisce solo 20, le altre 20 arrivano dall'avversario
+#     durante la partita (non sono una scelta del mazzo, giusto che metastats.net non le
+#     tracci)
+#   - Timethief Rafaam (Warlock, keyword "Fabled+"): "Your deck size is 40, but has 10
+#     Rafaams!" -> permette fino a 10 copie di leggendarie "Rafaam" in un mazzo da 40
+# Li escludiamo comunque per tenere il classificatore su un confronto omogeneo (curva di
+# mana, conteggi per rarita'/tipo calcolati sulla stessa base per tutti i mazzi).
 EXPECTED_DECK_SIZE = 30
 MECHANICS_OF_INTEREST = [
     "TAUNT", "DEATHRATTLE", "BATTLECRY", "RUSH", "DIVINE_SHIELD", "COMBO", "LIFESTEAL",
