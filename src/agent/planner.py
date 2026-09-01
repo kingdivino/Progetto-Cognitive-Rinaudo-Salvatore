@@ -69,7 +69,15 @@ Regole:
 - Ogni post deve avere una justification concreta e specifica (gap di copertura, dato
   reale citato, novita' nel meta) - non giustificazioni generiche.
 - Se sono forniti "Archetipi reali dai dati di scraping", usali come base concreta per
-  almeno un paio di post (sono numeri veri, non inventarne altri)."""
+  almeno un paio di post (sono numeri veri, non inventarne altri).
+- NON INVENTARE fatti specifici e verificabili che non ti sono stati forniti: nomi di
+  espansioni, date di patch, nomi/date di tornei, percentuali di winrate diverse da
+  quelle fornite. Non sai con certezza quale sia l'ultima espansione o il calendario
+  esport attuale. Per un topic di tipo evento/news di cui non hai il dato reale, resta
+  GENERICO nel topic stesso (es. "analisi della prossima espansione in arrivo",
+  "impatto dell'ultima patch di bilanciamento sul meta") invece di inventare un nome o
+  una data plausibili ma falsi: la verifica del fatto reale spetta al nodo di ricerca
+  a valle (Search/RAG), non a te in fase di pianificazione."""
 
 
 def plan_posts(state: AgentState) -> AgentState:
