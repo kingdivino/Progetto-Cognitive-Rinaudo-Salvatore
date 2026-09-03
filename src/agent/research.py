@@ -86,7 +86,22 @@ Regole:
 - Fermati quando hai raccolto abbastanza materiale per il post (di norma bastano
   2-4 chiamate a tool) - non continuare a cercare senza motivo.
 - Quando hai finito, produci il riassunto finale SOLO con claim che hai
-  effettivamente verificato con i tool sopra, ognuno con la sua fonte esplicita."""
+  effettivamente verificato con i tool sopra, ognuno con la sua fonte esplicita.
+- Il topic/motivazione del post che ricevi puo' contenere termini tecnici interni
+  del progetto (es. "regola_speciale", nomi di campi dati) invece del nome reale
+  della carta o meccanica di gioco a cui si riferiscono. NON usare mai questi
+  termini interni alla lettera come query per un tool (una ricerca per
+  "regola_speciale" non trovera' nulla, ne' nel corpus RAG ne' sul web, perche' non
+  e' un termine del gioco). Prima traduci il termine nel suo significato reale
+  (vedi il glossario qui sotto se applicabile), poi interroga i tool con quello.
+
+Glossario termini interni del progetto:
+- "regola_speciale" = il mazzo usa una regola di costruzione non standard (20 o 40
+  carte invece delle 30 tipiche) dovuta a una carta leggendaria specifica: Azalina
+  Soulsever (Priest, mazzo di 20 carte + 20 copiate dall'avversario) o Timethief
+  Rafaam (Warlock, mazzo di 40 carte con fino a 10 leggendarie "Rafaam"). Se il post
+  parla di questa meccanica ma non menziona quale delle due carte, cerca ENTRAMBE
+  per nome (es. su search_card_knowledge) invece di cercare "regola_speciale"."""
 
 
 def research_topic(state: AgentState) -> AgentState:
@@ -196,11 +211,31 @@ def research_topic(state: AgentState) -> AgentState:
     ]
     try:
         summary: ResearchSummary = structured_llm.invoke(extraction_messages)
-        research_summary = {
-            "claims": [c.model_dump() for c in summary.claims],
-            "tools_used": tools_used,
-        }
+        claims_dicts = []
+        n_malformed = 0
+        for c in summary.claims:
+            claim_dict = c.model_dump()
+            # Validazione strutturale (in codice, non delegata al prompt) del campo
+            # source: deve essere un URL, "RAG: <...>" o esattamente "KG". Osservato
+            # (03/09/2026, qwen3:8b) che un modello piu' piccolo non rispetta sempre
+            # l'istruzione testuale sul formato - qui lo intercettiamo e lo segnaliamo
+            # invece di fidarci ciecamente, cosi' un futuro nodo Format/Draft (o un
+            # revisore umano) puo' scartare/verificare a mano i claim non conformi.
+            src = (claim_dict.get("source") or "").strip()
+            well_formed = src == "KG" or src.startswith("RAG:") or src.startswith(("http://", "https://"))
+            claim_dict["source_well_formed"] = well_formed
+            if not well_formed:
+                n_malformed += 1
+            claims_dicts.append(claim_dict)
+
+        research_summary = {"claims": claims_dicts, "tools_used": tools_used}
         reasoning_trace.append(f"[Research] Riassunto finale: {len(summary.claims)} claim raccolti.")
+        if n_malformed:
+            reasoning_trace.append(
+                f"[Research] [WARNING] {n_malformed}/{len(summary.claims)} claim con fonte non nel "
+                "formato atteso (URL/RAG:/KG) - controllare a mano prima di usarli nel post "
+                "(campo 'source_well_formed': False su questi claim)."
+            )
     except Exception as e:
         reasoning_trace.append(f"[Research] [ERROR] Fallita l'estrazione del riassunto finale: {e}")
         research_summary = {"claims": [], "tools_used": tools_used}

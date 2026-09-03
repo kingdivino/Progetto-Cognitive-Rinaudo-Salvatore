@@ -69,8 +69,9 @@ def main():
 
     print(f"\n=== Claim raccolti ({len(claims)}) ===")
     for i, c in enumerate(claims, start=1):
+        flag = "" if c.get("source_well_formed", True) else "  [FONTE NON CONFORME - verificare a mano]"
         print(f"\n{i}. {c.get('claim')}")
-        print(f"   Fonte: {c.get('source')}")
+        print(f"   Fonte: {c.get('source')}{flag}")
 
     if not claims:
         print("\n[ATTENZIONE] Nessun claim raccolto - controlla il reasoning_trace sopra per l'errore "
