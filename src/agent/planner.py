@@ -22,6 +22,7 @@ fine-tuned) -> Format/Draft -> Human Review (interrupt) -> KG Update.
 from __future__ import annotations
 
 import json
+import time
 from typing import Literal
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -144,6 +145,7 @@ Regole:
 def plan_posts(state: AgentState) -> AgentState:
     """Nodo Planner del grafo LangGraph. Riceve lo stato condiviso, ritorna lo stato
     aggiornato con reasoning_trace/planning_info/post_plan popolati."""
+    node_start = time.perf_counter()
     reasoning_trace = list(state.get("reasoning_trace", []))
 
     kg_reachable = kg.check_connection()
@@ -190,6 +192,7 @@ def plan_posts(state: AgentState) -> AgentState:
     ])
     chain = prompt | structured_llm
 
+    llm_start = time.perf_counter()
     try:
         plan: PostPlan = chain.invoke({
             "covered_topics": json.dumps(covered_topics, ensure_ascii=False) if covered_topics else "nessuno",
@@ -197,17 +200,29 @@ def plan_posts(state: AgentState) -> AgentState:
             "archetype_signals": json.dumps(archetype_signals, ensure_ascii=False) if archetype_signals else "nessuno",
             "n_posts": n_posts,
         })
+        llm_elapsed = time.perf_counter() - llm_start
         post_plan = [p.model_dump() for p in plan.posts]
-        reasoning_trace.append(f"[Planner] Pianificati {len(post_plan)} post.")
+        reasoning_trace.append(
+            f"[Planner] Pianificati {len(post_plan)} post (chiamata LLM: {llm_elapsed:.1f}s)."
+        )
     except Exception as e:
+        llm_elapsed = time.perf_counter() - llm_start
         # Un modello locale (llama3.1:8b) puo' occasionalmente non rispettare lo schema
         # strutturato richiesto - non deve far crashare il grafo, va segnalato.
-        reasoning_trace.append(f"[Planner] [ERROR] Fallita generazione del piano: {e}")
+        reasoning_trace.append(
+            f"[Planner] [ERROR] Fallita generazione del piano dopo {llm_elapsed:.1f}s: {e}"
+        )
         post_plan = []
+
+    node_elapsed = time.perf_counter() - node_start
+    timings = dict(state.get("timings", {}))
+    timings["planner_llm_s"] = round(llm_elapsed, 2)
+    timings["planner_total_s"] = round(node_elapsed, 2)
 
     return {
         **state,
         "reasoning_trace": reasoning_trace,
+        "timings": timings,
         "planning_info": {
             **state.get("planning_info", {}),
             "kg_reachable": kg_reachable,

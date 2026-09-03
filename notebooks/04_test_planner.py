@@ -9,11 +9,18 @@ Cosa verifica:
 - L'LLM (Ollama) pianifica una sequenza di post con output strutturato, ognuno con
   tipo/topic/justification.
 - Tracing su LangSmith (se configurato nel .env, vedi guida di progetto).
+- Cronometraggio: stampa il tempo totale e, per nodo, quanto va in chiamate LLM vs
+  tool vs overhead (utile per confrontare modelli Ollama diversi, vedi guida di
+  progetto). NOTA: dato che src/agent/graph.py collega ormai Planner -> Research,
+  questo script esegue di fatto anche il nodo Research, non solo il Planner - per
+  un test mirato solo sul Research vedi notebooks/06_test_research.py.
 
 Come eseguirlo (dalla cartella del progetto, con il venv attivo):
     python -u notebooks/04_test_planner.py
 """
+import os
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -31,7 +38,9 @@ def main():
         "user_input": "pianifica i prossimi post del blog",
         "reasoning_trace": [],
     }
+    wall_start = time.perf_counter()
     result = graph.invoke(initial_state)
+    wall_elapsed = time.perf_counter() - wall_start
 
     print("\n=== Reasoning trace ===")
     for line in result["reasoning_trace"]:
@@ -44,6 +53,12 @@ def main():
 
     if not result["post_plan"]:
         print("\n[ATTENZIONE] Nessun post pianificato - controlla il reasoning_trace sopra per l'errore.")
+
+    timings = result.get("timings", {})
+    print(f"\n=== Tempi (modello: {os.environ.get('OLLAMA_MODEL', 'llama3.1:8b')}) ===")
+    for key, seconds in timings.items():
+        print(f"- {key}: {seconds:.1f}s")
+    print(f"- tempo totale wall-clock (graph.invoke): {wall_elapsed:.1f}s")
 
 
 if __name__ == "__main__":

@@ -20,6 +20,11 @@ Campi aggiunti per il nodo Research/ReAct (roadmap punto 5):
   post per post e' un lavoro futuro, per ora si lavora sul primo post del piano)
 - research_summary: l'output del nodo Research - claim raccolti con le fonti a
   supporto di ciascuno, pronti per il nodo Format/Draft
+- timings: cronometraggio per nodo (secondi, float), popolato in modo incrementale
+  da ogni nodo (ognuno aggiunge le proprie chiavi, es. "planner_total_s",
+  "research_llm_s") - permette di confrontare a colpo d'occhio quanto tempo va via
+  in chiamate LLM vs. chiamate tool (rete/RAG) vs. resto, utile per confrontare
+  modelli Ollama diversi sullo stesso prompt senza dover cronometrare a mano
 """
 from __future__ import annotations
 
@@ -35,3 +40,4 @@ class AgentState(TypedDict, total=False):
     post_plan: list[dict[str, Any]]
     current_post: dict[str, Any]
     research_summary: dict[str, Any]
+    timings: dict[str, float]

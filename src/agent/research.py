@@ -22,6 +22,8 @@ Nodi successivi da collegare qui in futuro: Format/Draft -> Human Review (interr
 """
 from __future__ import annotations
 
+import time
+
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel, Field
 
@@ -108,6 +110,9 @@ def research_topic(state: AgentState) -> AgentState:
     """Nodo Research/ReAct del grafo LangGraph. Riceve lo stato condiviso (deve gia'
     contenere post_plan, prodotto dal Planner), ritorna lo stato aggiornato con
     reasoning_trace/tool_outputs/kg_summary/current_post/research_summary popolati."""
+    node_start = time.perf_counter()
+    llm_time_total = 0.0
+    tool_time_total = 0.0
     reasoning_trace = list(state.get("reasoning_trace", []))
     tool_outputs = list(state.get("tool_outputs", []))
     kg_summary = dict(state.get("kg_summary", {}))
@@ -148,13 +153,16 @@ def research_topic(state: AgentState) -> AgentState:
     tools_used: list[str] = []
 
     for iteration in range(MAX_TOOL_ITERATIONS):
+        _llm_call_start = time.perf_counter()
         try:
             response = llm_with_tools.invoke(messages)
         except Exception as e:
+            llm_time_total += time.perf_counter() - _llm_call_start
             reasoning_trace.append(
                 f"[Research] [ERROR] chiamata LLM fallita all'iterazione {iteration + 1}: {e}"
             )
             break
+        llm_time_total += time.perf_counter() - _llm_call_start
         messages.append(response)
 
         tool_calls = getattr(response, "tool_calls", None) or []
@@ -171,6 +179,7 @@ def research_topic(state: AgentState) -> AgentState:
             reasoning_trace.append(f"[Research] Thought->Action: '{name}' con args={args}")
 
             tool_fn = TOOLS_BY_NAME.get(name)
+            _tool_call_start = time.perf_counter()
             if tool_fn is None:
                 observation = f"[ERROR] tool sconosciuto richiesto dall'LLM: {name}"
             else:
@@ -178,9 +187,11 @@ def research_topic(state: AgentState) -> AgentState:
                     observation = tool_fn.invoke(args)
                 except Exception as e:
                     observation = f"[ERROR] esecuzione tool '{name}' fallita: {e}"
+            _tool_elapsed = time.perf_counter() - _tool_call_start
+            tool_time_total += _tool_elapsed
 
             reasoning_trace.append(
-                f"[Research] Observation ({name}, justification: {justification}): "
+                f"[Research] Observation ({name}, {_tool_elapsed:.1f}s, justification: {justification}): "
                 f"{str(observation)[:300]}"
             )
             tool_outputs.append(
@@ -209,8 +220,10 @@ def research_topic(state: AgentState) -> AgentState:
             )
         )
     ]
+    _extraction_start = time.perf_counter()
     try:
         summary: ResearchSummary = structured_llm.invoke(extraction_messages)
+        llm_time_total += time.perf_counter() - _extraction_start
         claims_dicts = []
         n_malformed = 0
         for c in summary.claims:
@@ -237,8 +250,19 @@ def research_topic(state: AgentState) -> AgentState:
                 "(campo 'source_well_formed': False su questi claim)."
             )
     except Exception as e:
+        llm_time_total += time.perf_counter() - _extraction_start
         reasoning_trace.append(f"[Research] [ERROR] Fallita l'estrazione del riassunto finale: {e}")
         research_summary = {"claims": [], "tools_used": tools_used}
+
+    node_elapsed = time.perf_counter() - node_start
+    reasoning_trace.append(
+        f"[Research] Tempo nodo: {node_elapsed:.1f}s totali (LLM: {llm_time_total:.1f}s, "
+        f"tool: {tool_time_total:.1f}s, resto/overhead: {node_elapsed - llm_time_total - tool_time_total:.1f}s)."
+    )
+    timings = dict(state.get("timings", {}))
+    timings["research_llm_s"] = round(llm_time_total, 2)
+    timings["research_tool_s"] = round(tool_time_total, 2)
+    timings["research_total_s"] = round(node_elapsed, 2)
 
     return {
         **state,
@@ -247,4 +271,5 @@ def research_topic(state: AgentState) -> AgentState:
         "kg_summary": kg_summary,
         "current_post": current_post,
         "research_summary": research_summary,
+        "timings": timings,
     }
