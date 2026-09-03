@@ -22,12 +22,10 @@ Nodi successivi da collegare qui in futuro: Format/Draft -> Human Review (interr
 """
 from __future__ import annotations
 
-import os
-
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
-from langchain_ollama import ChatOllama
 from pydantic import BaseModel, Field
 
+from src.agent.llm_config import build_llm
 from src.agent.state import AgentState
 from src.tools.kg_tool import query_knowledge_graph
 from src.tools.rag_tool import search_card_knowledge
@@ -91,18 +89,6 @@ Regole:
   effettivamente verificato con i tool sopra, ognuno con la sua fonte esplicita."""
 
 
-def _build_llm(temperature: float) -> ChatOllama:
-    kwargs = dict(
-        model=os.environ.get("OLLAMA_MODEL", "llama3.1:8b"),
-        base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
-        temperature=temperature,
-    )
-    num_gpu_override = os.environ.get("OLLAMA_NUM_GPU")
-    if num_gpu_override:
-        kwargs["num_gpu"] = int(num_gpu_override)
-    return ChatOllama(**kwargs)
-
-
 def research_topic(state: AgentState) -> AgentState:
     """Nodo Research/ReAct del grafo LangGraph. Riceve lo stato condiviso (deve gia'
     contenere post_plan, prodotto dal Planner), ritorna lo stato aggiornato con
@@ -127,7 +113,7 @@ def research_topic(state: AgentState) -> AgentState:
         f"[Research] Avvio ricerca per il post: [{current_post.get('tipo')}] {current_post.get('topic')}"
     )
 
-    llm = _build_llm(temperature=0.3)
+    llm = build_llm(temperature=0.3)
     llm_with_tools = llm.bind_tools(TOOLS)
 
     messages = [
