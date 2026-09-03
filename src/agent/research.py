@@ -89,21 +89,23 @@ Regole:
   2-4 chiamate a tool) - non continuare a cercare senza motivo.
 - Quando hai finito, produci il riassunto finale SOLO con claim che hai
   effettivamente verificato con i tool sopra, ognuno con la sua fonte esplicita.
-- Il topic/motivazione del post che ricevi puo' contenere termini tecnici interni
-  del progetto (es. "regola_speciale", nomi di campi dati) invece del nome reale
-  della carta o meccanica di gioco a cui si riferiscono. NON usare mai questi
-  termini interni alla lettera come query per un tool (una ricerca per
-  "regola_speciale" non trovera' nulla, ne' nel corpus RAG ne' sul web, perche' non
-  e' un termine del gioco). Prima traduci il termine nel suo significato reale
-  (vedi il glossario qui sotto se applicabile), poi interroga i tool con quello.
+- Il topic/motivazione del post che ricevi puo' menzionare un mazzo con un numero
+  di carte diverso da 30 (es. 20 o 40) - non e' un errore, e' una regola di
+  costruzione non standard dovuta a una carta leggendaria specifica (vedi glossario
+  sotto). NON cercare mai un tool con query generiche tipo "numero carte non
+  standard" o simili: cerca DIRETTAMENTE il nome della carta leggendaria responsabile
+  (vedi glossario), che e' un termine di gioco reale e trova risultati pertinenti nel
+  corpus RAG.
 
-Glossario termini interni del progetto:
-- "regola_speciale" = il mazzo usa una regola di costruzione non standard (20 o 40
-  carte invece delle 30 tipiche) dovuta a una carta leggendaria specifica: Azalina
-  Soulsever (Priest, mazzo di 20 carte + 20 copiate dall'avversario) o Timethief
-  Rafaam (Warlock, mazzo di 40 carte con fino a 10 leggendarie "Rafaam"). Se il post
-  parla di questa meccanica ma non menziona quale delle due carte, cerca ENTRAMBE
-  per nome (es. su search_card_knowledge) invece di cercare "regola_speciale"."""
+Glossario meccaniche di gioco rilevanti:
+- Un mazzo da 20 carte invece di 30 e' dovuto a **Azalina Soulsever** (Priest,
+  mazzo di 20 carte + 20 copiate dall'avversario). Un mazzo da 40 carte e' dovuto a
+  **Timethief Rafaam** (Warlock, mazzo di 40 carte con fino a 10 leggendarie
+  "Rafaam"). Se il post parla di questa meccanica senza nominare la carta
+  leggendaria specifica, cerca il nome esatto della carta (es. "Azalina Soulsever",
+  "Timethief Rafaam" per intero, non solo "Azalina" o "Rafaam" - il corpus contiene
+  piu' carte con nomi simili e una query troppo generica puo' non trovare quella
+  giusta) su search_card_knowledge."""
 
 
 def research_topic(state: AgentState) -> AgentState:

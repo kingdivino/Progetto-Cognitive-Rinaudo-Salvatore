@@ -60,7 +60,7 @@ def load_archetype_signals(top_n: int = 8) -> list[dict]:
             "classe": row["deck_class"],
             "winrate": f"{row['winrate']:.1f}%",
             "partite": int(row["games"]),
-            "regola_speciale": bool(row["has_special_deckbuild"]),
+            "numero_carte_mazzo": int(row["n_cards_total"]),
         }
         for _, row in picked.iterrows()
     ]

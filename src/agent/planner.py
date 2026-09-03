@@ -97,7 +97,7 @@ Regole:
   fase di pianificazione.
 - Quando descrivi un archetipo preso da "Archetipi reali dai dati di scraping", ogni
   caratteristica che affermi deve essere derivabile SOLO dai campi forniti (winrate,
-  numero di partite, regola_speciale):
+  numero di partite, numero_carte_mazzo):
   - "popolarita'" o "quanto e' giocato" puoi stimarli SOLO confrontando il numero di
     partite di un archetipo con quello degli ALTRI archetipi forniti nella stessa lista
     (es. numero di partite alto rispetto agli altri = relativamente piu' popolare/
@@ -121,16 +121,14 @@ Regole:
     "il mazzo #33012"), non generalizzare le sue statistiche a "l'archetipo Control
     Warrior" o "i mazzi Control Warrior" in generale, a meno che i dati forniti non
     contengano piu' campioni concordanti dello stesso nome.
-  - Il campo "regola_speciale" indica che il mazzo usa una regola di costruzione non
-    standard (dimensione di 20 o 40 carte invece delle 30 tipiche) dovuta a una carta
-    leggendaria specifica (es. Azalina Soulsever o Timethief Rafaam) che altera quante
-    carte si costruiscono. Quando lo citi in topic/justification, descrivilo con parole
-    tue (es. "una regola di costruzione mazzo non standard", "una meccanica che
-    modifica la dimensione del mazzo") invece di scrivere letteralmente il nome del
-    campo "regola_speciale" tra virgolette, che e' un'etichetta interna dei dati, non
-    un termine che i lettori del blog riconoscerebbero.
+  - Il campo "numero_carte_mazzo" e' il numero REALE di carte di quel mazzo (30 e' la
+    dimensione standard di Hearthstone; 20 o 40 significano che una carta leggendaria
+    specifica altera la regola di costruzione, es. Azalina Soulsever per i mazzi da 20,
+    Timethief Rafaam per quelli da 40). E' gia' un dato comprensibile di per se' - non
+    e' un'etichetta interna ne' un jargon, quindi citalo direttamente (es. "questo
+    mazzo ha 20 carte invece delle 30 standard") senza bisogno di parafrasarlo.
   - PRIMA di scrivere che un valore e' "unico", "il solo" o "l'unico" tra gli archetipi
-    forniti (es. "l'unico mazzo con regola_speciale attiva", "l'unico archetipo con
+    forniti (es. "l'unico mazzo con 20 carte invece di 30", "l'unico archetipo con
     winrate sotto il 30%"), controlla ESPLICITAMENTE ogni singola voce della lista
     fornita per verificare che nessun'altra voce condivida quel valore. Non assumere
     l'unicita' guardando solo la voce di cui stai scrivendo: un'affermazione di
