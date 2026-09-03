@@ -11,6 +11,11 @@ __pycache__/
 data/raw/*
 !data/raw/.gitkeep
 
+# Indice RAG (FAISS + metadata) - artefatto rigenerabile con
+# notebooks/05_build_rag_index.py, 14MB, non versionato per lo stesso motivo di data/raw
+data/rag/*
+!data/rag/.gitkeep
+
 # Jupyter
 .ipynb_checkpoints/
 

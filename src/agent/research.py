@@ -44,9 +44,12 @@ TOOLS_BY_NAME = {t.name: t for t in TOOLS}
 class SourcedClaim(BaseModel):
     claim: str = Field(description="un'affermazione specifica e verificabile per il post, basata SOLO su quanto trovato con i tool in questa ricerca")
     source: str = Field(
-        description="fonte a supporto del claim: un URL (se trovato con search_web), "
-        "'RAG: <nome carta>' (se trovato con search_card_knowledge), oppure 'KG' "
-        "(se derivato da query_knowledge_graph)"
+        description="fonte a supporto del claim - ESATTAMENTE una di queste 3 forme, "
+        "corrispondenti ai 3 tool disponibili, mai altro: un URL (da search_web), "
+        "'RAG: <nome carta>' (da search_card_knowledge), oppure 'KG' (da "
+        "query_knowledge_graph). Non usare fonti come 'Planner' o altri campi dello "
+        "stato - se un dato viene dal piano del Planner e non da un tool chiamato "
+        "in QUESTA ricerca, non e' un claim di questo nodo e va escluso."
     )
 
 
@@ -198,7 +201,10 @@ def research_topic(state: AgentState) -> AgentState:
             content=(
                 "Riassumi ora i claim raccolti in questa ricerca, ognuno con la fonte "
                 "esplicita a supporto. Includi SOLO claim supportati da quello che hai "
-                "effettivamente trovato con i tool sopra in questa conversazione."
+                "effettivamente trovato con i tool sopra in questa conversazione - non "
+                "includere dati che vengono solo dal piano del Planner (es. winrate/"
+                "partite gia' presenti nella justification del post) se non li hai "
+                "anche verificati/ritrovati con un tool in questa ricerca."
             )
         )
     ]

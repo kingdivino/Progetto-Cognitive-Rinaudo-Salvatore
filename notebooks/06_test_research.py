@@ -54,9 +54,18 @@ def main():
     tools_used = research_summary.get("tools_used", [])
     claims = research_summary.get("claims", [])
 
+    tool_outputs = result.get("tool_outputs", [])
     print(f"\n=== Tool usati ({len(tools_used)}) ===")
     for t in tools_used:
         print("-", t)
+
+    print(f"\n=== Osservazioni complete dei tool ({len(tool_outputs)}) ===")
+    # Stampate per intero (non troncate a 300 char come nel reasoning_trace) - servono a
+    # verificare a occhio se i claim del riassunto finale sono davvero fondati su quello
+    # che i tool hanno trovato, o se l'estrazione ha aggiunto dettagli non presenti qui.
+    for i, entry in enumerate(tool_outputs, start=1):
+        print(f"\n{i}. [{entry.get('tool')}] justification: {entry.get('justification')}")
+        print(f"   Observation: {entry.get('observation')}")
 
     print(f"\n=== Claim raccolti ({len(claims)}) ===")
     for i, c in enumerate(claims, start=1):
