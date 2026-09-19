@@ -1,9 +1,5 @@
-"""
-Connessione a Neo4j + query di base per il Knowledge Graph editoriale.
-
-Schema del grafo, scritto per la prima volta dal nodo KG Update (roadmap punto 8,
-src/agent/kg_update.py) SOLO dopo approvazione umana - fino ad allora il grafo resta
-vuoto (letto da Planner/Research/Format, che trattano il vuoto come stato normale):
+"""Connessione a Neo4j + query di base per il Knowledge Graph editoriale, scritto
+per la prima volta dal nodo KG Update solo dopo approvazione umana. Schema:
 
     (:Post {id, tipo, topic, created_at, summary})
     (:Topic {name, classe, formato})
@@ -13,20 +9,7 @@ vuoto (letto da Planner/Research/Format, che trattano il vuoto come stato normal
     (Post)-[:CITES]->(Source)
     (Post)-[:MAKES_CLAIM]->(Claim)
     (Claim)-[:SUPPORTED_BY]->(Source)
-    (Topic)-[:RELATED_TO]->(Topic)   # collega topic con la stessa classe di mazzo
-                                      # (deterministico - non un giudizio LLM su cosa
-                                      # sia "correlato", stesso principio "codice
-                                      # invece di prompt" del resto del progetto)
-
-NOTE sullo schema rispetto alla bozza iniziale (rivista scrivendo il nodo KG Update,
-10/09/2026): Source usa 'ref' invece di 'url' perche' una fonte non e' sempre un URL
-(puo' essere "RAG: <nome carta>" o "KG", vedi source_well_formed in research.py) -
-'ref' e' la stringa fonte cosi' com'e', 'tier' e' l'esito di classify_source_tier()
-(aggregato/ufficiale/opinione_singola/dati_locali/sconosciuta, vedi research.py).
-
-Gotcha da questo progetto (vedi guida di progetto per i dettagli): load_dotenv va
-chiamato con override=True per evitare che variabili d'ambiente di sistema (Windows)
-con lo stesso nome abbiano precedenza silenziosa sul file .env del progetto.
+    (Topic)-[:RELATED_TO]->(Topic)   # topic con la stessa classe di mazzo
 """
 from __future__ import annotations
 
@@ -103,12 +86,10 @@ def write_approved_post(
     sources: list[dict],
     claims: list[dict],
 ) -> int:
-    """Scrive un post APPROVATO nel KG - unico punto di scrittura vera e propria di
-    tutto il grafo (chiamato SOLO da update_knowledge_graph in src/tools/kg_tool.py,
-    a sua volta invocato SOLO dal nodo KG Update dopo approvazione umana - vedi
-    src/agent/kg_update.py). Idempotente sul post_id (MERGE): una doppia scrittura
-    accidentale per lo stesso post aggiorna le stesse proprieta' invece di duplicare
-    il nodo.
+    """Scrive un post approvato nel KG - unico punto di scrittura del grafo,
+    chiamato solo da update_knowledge_graph dopo approvazione umana. Idempotente sul
+    post_id (MERGE): una doppia scrittura aggiorna le stesse proprieta' invece di
+    duplicare il nodo.
 
     Args:
         post_id: identificatore univoco del post.

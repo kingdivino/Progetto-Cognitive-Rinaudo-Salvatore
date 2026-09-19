@@ -1,21 +1,5 @@
-"""
-Tool basato sul modello fine-tuned (roadmap punto 6) - requisito esplicito delle
-specifiche: "almeno 2 tool aggiuntivi progettati dal team, di cui almeno uno basato
-sul modello fine-tuned" (vedi claude/specifiche-progetto.md).
-
-Carica il modello base (Qwen2.5-1.5B-Instruct di default) + l'adapter LoRA addestrato
-da notebooks/13_finetune_train.py (scelto tra le configurazioni confrontate in
-notebooks/13b_compare_runs.py) e lo espone come tool dell'agente: dato un mazzo
-(classe/formato/composizione), stima il suo "power level" (basso/medio/alto) - un
-segnale indipendente da RAG/search, utile per un post how-to/review che deve valutare
-quanto un mazzo sia forte/interessante, non solo descriverne le carte.
-
-Stesso pattern di lazy-loading di rag_tool.py (indice/embedder caricati una sola volta,
-non ad ogni chiamata) e stessa gestione robusta degli errori del resto del progetto:
-se l'adapter non e' stato ancora addestrato, il tool ritorna un messaggio [ERROR]
-invece di far crashare il nodo Research - degrada con grazia, stesso principio gia'
-usato per KG/RAG irraggiungibili.
-"""
+"""Tool basato sul modello fine-tuned: carica il modello base + l'adapter LoRA
+addestrato e stima il power level (basso/medio/alto) di un mazzo."""
 from __future__ import annotations
 
 import os
@@ -76,10 +60,9 @@ def _load_model():
 
 
 def _parse_label(generated_text: str) -> str:
-    """Stessa logica di parsing usata nei notebook di training/valutazione - duplicata
-    deliberatamente (nessun import incrociato tra src/tools e notebooks) invece che
-    condivisa, per non introdurre una dipendenza dei tool di produzione verso il
-    codice sperimentale di training."""
+    """Stessa logica di parsing usata nei notebook di training/valutazione,
+    duplicata deliberatamente per non far dipendere i tool di produzione dal codice
+    sperimentale di training."""
     t = generated_text.lower()
     for label in LABELS:
         if label in t:

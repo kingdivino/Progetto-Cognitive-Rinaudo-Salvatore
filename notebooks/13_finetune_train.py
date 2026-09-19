@@ -110,29 +110,25 @@ def main() -> None:
     train_texts = [to_chat_text(tokenizer, r, include_answer=True) for r in train_records]
     train_dataset = Dataset.from_dict({"text": train_texts})
 
-    # Dataset di valutazione per il Trainer (17/09/2026) - stesso formato del train
-    # (risposta inclusa nel testo, serve per calcolare una loss confrontabile),
-    # usato SOLO per scegliere il checkpoint migliore durante il training (vedi
-    # load_best_model_at_end sotto) - la valutazione "vera" (accuracy/macro-F1 per
-    # generazione autoregressiva, la stessa metrica delle baseline) resta quella
-    # fatta a mano piu' sotto, dopo il training.
+    # Dataset di valutazione per il Trainer, stesso formato del train (risposta
+    # inclusa, serve per una loss confrontabile) - usato SOLO per scegliere il
+    # checkpoint migliore (vedi load_best_model_at_end sotto). La valutazione "vera"
+    # (accuracy/macro-F1, stessa metrica delle baseline) resta quella fatta a mano
+    # piu' sotto, dopo il training.
     val_texts = [to_chat_text(tokenizer, r, include_answer=True) for r in val_records]
     val_dataset = Dataset.from_dict({"text": val_texts})
 
     model = AutoModelForCausalLM.from_pretrained(
         BASE_MODEL,
         dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
-        # 'dtype' non 'torch_dtype' - rinominato nella versione di transformers
-        # installata il 17/09/2026 (5.16.1); 'torch_dtype' resta accettato ma da'
-        # un warning di deprecazione ad ogni run. bfloat16 (non float16) sulla GPU:
-        # verificato il 17/09/2026 che l'hardware dell'utente (RTX 3050 Ti, Ampere)
-        # supporta bf16 nativamente - piu' stabile di fp16 per il training (stesso
-        # range di esponente di fp32, non serve loss scaling per evitare NaN).
+        # 'dtype' (non 'torch_dtype', deprecato nella versione di transformers
+        # installata). bfloat16 sulla GPU: l'hardware (RTX 3050 Ti, Ampere) supporta
+        # bf16 nativamente - piu' stabile di fp16 per il training (stesso range di
+        # esponente di fp32, non serve loss scaling per evitare NaN).
     )
 
-    # target_modules q/k/v/o_proj: stessa scelta gia' documentata nel template
-    # GymAssistant (vedi guida di progetto) - i moduli di attenzione sono dove LoRA
-    # da' tipicamente il miglior rapporto tra parametri allenabili e qualita' per
+    # target_modules q/k/v/o_proj: i moduli di attenzione sono dove LoRA da'
+    # tipicamente il miglior rapporto tra parametri allenabili e qualita' per
     # modelli di questa taglia.
     lora_config = LoraConfig(
         r=LORA_RANK,
@@ -149,57 +145,39 @@ def main() -> None:
         num_train_epochs=NUM_EPOCHS,
         learning_rate=LEARNING_RATE,
         per_device_train_batch_size=1,
-        gradient_accumulation_steps=8,  # stesso batch effettivo di prima (8), ma
-        # meno picco di memoria per singolo passo - importante passando a una GPU
-        # con solo 4GB di VRAM dedicata (rischio di out-of-memory con batch_size=4).
+        gradient_accumulation_steps=8,  # stesso batch effettivo (8) ma meno picco di
+        # memoria per passo - importante con solo 4GB di VRAM dedicata.
         logging_steps=10,
         save_strategy="steps",
-        save_steps=10,  # checkpoint ogni 10 step (non a fine epoca) - 17/09/2026:
-        # con "epoch" il primo salvataggio arriva solo a fine prima epoca (~15-20
-        # minuti su questo hardware), troppo tardi se la sessione va interrotta
-        # prima (es. utente che deve chiudere il PC). Con step=10 il primo
-        # checkpoint utile arriva in pochi minuti.
-        save_total_limit=3,  # tiene solo gli ultimi 3 checkpoint - un adapter LoRA
-        # e' piccolo (pochi MB), ma senza limite si accumulerebbero comunque tanti
-        # checkpoint su una run lunga. NOTA: con load_best_model_at_end=True sotto,
-        # HF Trainer protegge sempre il checkpoint migliore dalla cancellazione
-        # anche se non e' tra gli ultimi 3 per ordine cronologico.
+        save_steps=10,  # checkpoint ogni 10 step, non a fine epoca: con "epoch" il
+        # primo salvataggio arriverebbe troppo tardi se la sessione viene interrotta.
+        save_total_limit=3,  # tiene solo gli ultimi 3 checkpoint (un adapter LoRA e'
+        # piccolo ma si accumulerebbero comunque su una run lunga) - con
+        # load_best_model_at_end=True il Trainer protegge comunque il migliore.
         eval_strategy="steps",
-        eval_steps=10,  # stesso intervallo di save_steps - obbligatorio per
+        eval_steps=10,  # stesso intervallo di save_steps, obbligatorio per
         # load_best_model_at_end (deve essere un multiplo esatto).
-        load_best_model_at_end=True,  # 17/09/2026, aggiunto dopo aver osservato un
-        # overfitting netto nel primo run (accuracy sul train 93%, sul validation
-        # solo 43%): invece di tenere i pesi dell'ULTIMA epoca (i piu' overfittati),
-        # il Trainer tiene traccia della eval_loss ad ogni valutazione e alla fine
-        # ripristina automaticamente i pesi del checkpoint con la eval_loss piu'
-        # bassa - una forma di early stopping "morbido", che permette di allenare
-        # per piu' epoche senza il rischio di consegnare il checkpoint peggiore.
+        load_best_model_at_end=True,  # aggiunto dopo un overfitting netto nel primo
+        # run (accuracy train 93%, validation 43%): invece dei pesi dell'ULTIMA epoca
+        # (i piu' overfittati), il Trainer ripristina il checkpoint con eval_loss piu'
+        # bassa - un early stopping "morbido" che permette piu' epoche senza il
+        # rischio di consegnare il checkpoint peggiore.
         metric_for_best_model="eval_loss",
         greater_is_better=False,
-        report_to=[],  # niente wandb/altri tracker - LangSmith copre l'agente, non
-        # il training, che qui logga solo su stdout/file locali
+        report_to=[],  # niente wandb - LangSmith copre l'agente, non il training
         dataset_text_field="text",
-        max_length=512,  # le descrizioni di mazzo sono brevi, 512 token bastano
-        # abbondantemente e tengono il training leggero sull'hardware limitato -
-        # nome del parametro 'max_length' (non 'max_seq_length', rimosso nella
-        # versione di trl installata il 17/09/2026, trl 1.13.0 - verificato
-        # leggendo direttamente trl/trainer/sft_config.py sul venv dell'utente,
-        # dato che la libreria ha binari compilati per Windows non eseguibili
-        # nella sandbox Linux usata per scrivere/verificare questo codice)
-        bf16=torch.cuda.is_available(),  # SFTConfig di default mette bf16=True
-        # (vedi commento nella sua docstring) - richiede una GPU con supporto bf16
-        # (Ampere+). Su CPU (nessuna GPU rilevata) va disattivato esplicitamente,
-        # altrimenti il training si rifiuta di partire ("Your setup doesn't
-        # support bf16/gpu..."); su GPU Ampere (verificato: RTX 3050 Ti) invece va
-        # tenuto attivo, coerente con il dtype bf16 del modello caricato sopra.
-        use_cpu=not torch.cuda.is_available(),  # esplicito invece di lasciare
-        # l'auto-detection - coerente con la scelta di dtype del modello sopra.
-        gradient_checkpointing=False,  # SFTConfig lo attiva di default (True), ma
-        # con un modello PEFT/LoRA senza model.enable_input_require_grads() causa
-        # tipicamente un errore "element 0 of tensors does not require grad" in
-        # backward - problema noto della combinazione PEFT+gradient_checkpointing.
-        # Disattivato: il dataset e' piccolo (~400 esempi) e non serve risparmiare
-        # memoria GPU (CPU-only, nessuna VRAM in gioco).
+        max_length=512,  # le descrizioni di mazzo sono brevi, 512 token bastano e
+        # tengono il training leggero sull'hardware limitato (nome del parametro
+        # 'max_length', non 'max_seq_length', rimosso nella versione di trl installata)
+        bf16=torch.cuda.is_available(),  # SFTConfig di default mette bf16=True, che
+        # richiede una GPU con supporto bf16 (Ampere+) - va disattivato esplicitamente
+        # su CPU, altrimenti il training si rifiuta di partire.
+        use_cpu=not torch.cuda.is_available(),  # esplicito, coerente col dtype sopra.
+        gradient_checkpointing=False,  # SFTConfig lo attiva di default, ma con un
+        # modello PEFT/LoRA senza enable_input_require_grads() causa tipicamente un
+        # errore "element 0 of tensors does not require grad" in backward (problema
+        # noto PEFT+gradient_checkpointing). Disattivato: il dataset e' piccolo e non
+        # serve risparmiare memoria GPU (CPU-only, nessuna VRAM in gioco).
     )
 
     trainer = SFTTrainer(
@@ -210,11 +188,9 @@ def main() -> None:
         processing_class=tokenizer,
     )
 
-    # Ripresa automatica da un checkpoint precedente (17/09/2026) - se una run
-    # precedente e' stata interrotta a meta' (es. sessione chiusa per mancanza di
-    # tempo), riparte da li' invece che da zero. Cerca l'ultimo checkpoint in
-    # OUTPUT_DIR; se non ce n'e' nessuno (prima volta che si lancia questo
-    # LORA_RUN_NAME), parte normalmente da zero.
+    # Ripresa automatica da un checkpoint precedente: se una run e' stata interrotta
+    # a meta', riparte da li' invece che da zero. Cerca l'ultimo checkpoint in
+    # OUTPUT_DIR; se non ce n'e' nessuno, parte normalmente da zero.
     from transformers.trainer_utils import get_last_checkpoint
     last_checkpoint = get_last_checkpoint(OUTPUT_DIR) if os.path.isdir(OUTPUT_DIR) else None
     if last_checkpoint:

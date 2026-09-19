@@ -1,25 +1,6 @@
-"""
-Knowledge Graph tool (uno dei 3 tool minimi obbligatori dalla specifica: "Knowledge
-Graph tool (query + update)") - espone sia la query (usata da Research/Format) sia
-l'update (usato dal nodo KG Update, roadmap punto 8) sullo stesso grafo Neo4j.
-
-query_knowledge_graph serve al Research/ReAct per leggere lo stato attuale del grafo
-(coerenza con post precedenti, gap di copertura) e per il K-RAG: usare quello che
-trova qui per raffinare la query da mandare al RAG (search_card_knowledge) o al
-search tool - istruzione esplicita nel prompt del nodo Research, non logica
-automatica dentro al tool stesso.
-
-update_knowledge_graph scrive un post nel grafo - MA va chiamato SOLO dal nodo KG
-Update (src/agent/kg_update.py), e SOLO dopo che il nodo Human Review ha registrato
-un'approvazione esplicita (requisito della specifica: "Il KG si aggiorna SOLO dopo
-approvazione"). Stesso principio "chiamata fissa in codice, non lasciata alla
-discrezione di un ciclo ReAct" gia' consolidato in questo progetto per le chiamate
-fisse a query_knowledge_graph in Research/Format - qui a maggior ragione, dato che
-scrivere sul KG senza una vera approvazione violerebbe un requisito esplicito.
-
-Il parametro `justification` e' obbligatorio su entrambi i tool per lo stesso motivo
-degli altri tool minimi (ogni invocazione di tool va giustificata).
-"""
+"""Tool di query e aggiornamento del Knowledge Graph Neo4j (uno dei 3 tool minimi
+richiesti). update_knowledge_graph va chiamato solo dal nodo KG Update, dopo
+approvazione umana."""
 from __future__ import annotations
 
 import datetime

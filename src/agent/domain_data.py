@@ -1,14 +1,5 @@
-"""
-Segnali reali dai dati di scraping (metastats.net + HearthstoneJSON, vedi notebooks/02
-e 03) da dare in pasto al Planner come spunto CONCRETO invece di far inventare topic
-all'LLM a vuoto - coerente con il requisito delle specifiche di verificare l'accuratezza
-delle informazioni: qui il "grounding" comincia gia' in fase di pianificazione, non solo
-nel drafting.
-
-Non e' un tool del grafo (nessuna chiamata rete, nessun LLM) - e' lettura locale di un
-CSV gia' prodotto dalla pipeline di data collection, quindi puo' girare anche nella
-sandbox cloud oltre che nel venv Windows dell'utente.
-"""
+"""Carica dal CSV di data/processed gli archetipi/winrate reali da dare al Planner
+come spunto per i topic dei post. Sola lettura locale, nessun tool del grafo."""
 from __future__ import annotations
 
 import glob
@@ -22,13 +13,7 @@ RAW_DIR_HSREPLAY = os.path.join("data", "raw", "hsreplay")
 
 
 def _latest_deck_names() -> dict:
-    """deck_id -> nome leggibile (es. "Dragon Warrior", "Rafaam Warlock") dall'ultimo
-    snapshot di ciascuna fonte, per non mostrare all'LLM solo numeri/classi generiche
-    senza senso. Unisce metastats.net e HSReplay (07/09/2026, dopo aver notato che i
-    mazzi HSReplay comparivano nei topic del Planner senza nome di archetipo, solo con
-    la classe: 07_scrape_hsreplay.py ora risolve il nome via l'endpoint archetipi, ma
-    va comunque letto qui) - i due namespace di deck_id (intero vs stringa) non
-    collidono mai, quindi un dict.update() semplice basta."""
+    """deck_id -> nome leggibile (es. "Dragon Warrior")."""
     names: dict = {}
 
     metastats_files = sorted(glob.glob(os.path.join(RAW_DIR, "decks_*.csv")))
@@ -48,29 +33,12 @@ def _latest_deck_names() -> dict:
 def load_archetype_signals(
     top_n: int = 8, covered_topics: list[str] | None = None
 ) -> list[dict]:
-    """Seleziona una manciata di archetipi 'interessanti' dal dataset di fine-tuning:
-    i migliori/peggiori per winrate (materiale per un post news/review su cosa sale e
-    cosa scende nel meta) + quelli con regole di costruzione speciali (Azalina
-    Soulsever / Timethief Rafaam, vedi guida di progetto - materiale naturale per un
-    how-to su un archetipo particolare). Ritorna [] se il dataset non esiste ancora
-    (es. primo avvio prima di aver lanciato lo scraper) - il Planner deve gestirlo.
-
-    covered_topics (17/09/2026): elenco dei topic gia' presenti nel KG (lo stesso che
-    il Planner passa gia' testualmente all'LLM). Caso reale osservato: il Planner ha
-    ripetuto DUE VOLTE, parola per parola, lo stesso identico topic ("Come costruire
-    un mazzo Azalina Priest Standard con un winrate del 55.7%") nonostante l'elenco
-    "Topic gia' coperti dal KG" fosse gia' esplicitamente nel suo prompt - la regola
-    testuale "non ripetere" da sola non e' bastata su qwen3:8b, lo stesso limite di
-    compliance gia' documentato piu' volte in questo progetto. Fix strutturale invece
-    dell'ennesima regola di prompt: un archetipo il cui nome compare gia' in un topic
-    coperto viene escluso QUI, prima ancora di arrivare al Planner - non gli viene
-    data la possibilita' di essere riproposto, il candidato successivo per
-    winrate/partite prende automaticamente il suo posto. Match euristico (nome
-    dell'archetipo come sottostringa case-insensitive di un topic coperto) - non
-    perfetto ma coerente con altri controlli meccanici gia' presenti nel progetto
-    (es. BATTLEGROUNDS_ONLY_KEYWORDS in format_rules.py); se il filtro escludesse
-    TUTTI gli archetipi (dataset molto piccolo, tutti gia' coperti), si preferisce
-    mostrarli comunque al Planner piuttosto che non dargli nessun dato reale."""
+    """Seleziona una manciata di archetipi 'interessanti' dal dataset di fine-tuning
+    (migliori/peggiori per winrate + regole di costruzione speciali) per il Planner.
+    Ritorna [] se il dataset non esiste ancora. covered_topics esclude qui, prima del
+    Planner, gli archetipi il cui nome compare gia' in un topic coperto (match
+    euristico case-insensitive) - se il filtro li escluderebbe tutti, li mostra
+    comunque piuttosto che non dare nessun dato reale."""
     if not os.path.exists(PROCESSED_PATH):
         return []
     df = pd.read_csv(PROCESSED_PATH)

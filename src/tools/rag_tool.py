@@ -1,17 +1,5 @@
-"""
-RAG retrieval tool (uno dei 3 tool minimi obbligatori dalla specifica) - ricerca
-semantica sull'indice FAISS locale costruito da notebooks/05_build_rag_index.py
-(corpus: carte collezionabili di HearthstoneJSON).
-
-Limite noto (vedi anche guida di progetto): questo corpus copre bene i post
-how-to/review su carte/archetipi ma NON patch notes/espansioni/tornei - per quelli
-serve il search tool (src/tools/search_tool.py). Il RAG e' statico e verificabile
-(nessun rischio di risultati di bassa qualita' come una ricerca web), va preferito
-quando l'informazione che serve riguarda testo/statistiche di carte esistenti.
-
-Il parametro `justification` e' obbligatorio per lo stesso motivo del search tool:
-tracciare nel reasoning_trace perche' l'agente ha deciso di interrogare il RAG.
-"""
+"""Tool RAG: ricerca semantica sull'indice FAISS locale delle carte di
+HearthstoneJSON (uno dei 3 tool minimi richiesti)."""
 from __future__ import annotations
 
 import json
@@ -53,14 +41,10 @@ def _load_index():
 
 
 def get_card_info_by_name(name: str) -> dict | None:
-    """Cerca una carta per nome ESATTO (case-insensitive) nei metadati gia' caricati
-    dall'indice RAG e ritorna {'set': ..., 'cardClass': ...}, o None se non trovata o
-    se l'indice non e' disponibile. Usato dal nodo Research per verificare in codice -
-    non solo a parole nel prompt - che una carta suggerita in un claim con fonte
-    'RAG: <nome>' sia davvero legale nel formato (Standard/Wild, src/agent/
-    format_rules.py) E della classe giusta (o Neutrale) per il mazzo del post in
-    corso - una carta di classe sbagliata non e' giocabile in quel mazzo, a
-    prescindere dal formato."""
+    """Cerca una carta per nome esatto (case-insensitive) nei metadati dell'indice
+    RAG, ritorna {'set': ..., 'cardClass': ...} o None. Usato da Research per
+    verificare in codice che una carta con fonte 'RAG: <nome>' sia legale nel
+    formato e nella classe del mazzo del post."""
     try:
         _, metadata, _ = _load_index()
     except Exception:

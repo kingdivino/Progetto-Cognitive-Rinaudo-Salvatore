@@ -1,34 +1,7 @@
-"""
-Orchestrator - nodo `select_next_post` (11/09/2026), completa il roadmap punto 4
-("pianifica una sequenza di post futuri") facendo davvero avanzare il grafo su TUTTI
-i post pianificati, uno alla volta, invece della scorciatoia RESEARCH_POST_INDEX che
-elaborava sempre lo stesso post indicato a mano (comoda per i test manuali di un
-singolo nodo, mai pensata come soluzione definitiva - vedi commenti in
-src/agent/research.py).
-
-Punto di innesto nel grafo (src/agent/graph.py): chiamato sia SUBITO DOPO il Planner
-(prima iterazione, current_post_index ancora None) sia SUBITO DOPO il KG Update
-(ogni iterazione successiva, per passare al post che segue nel piano) - stesso nodo
-per entrambi i casi, la logica e' identica ("dato l'indice corrente, prepara il
-prossimo post o segnala che il piano e' finito").
-
-Perche' un nodo dedicato invece di farlo dentro Research: Research deve restare
-concentrato sulla ricerca di UN post che gli viene dato, non decidere lui stesso
-QUALE post viene dopo - stessa separazione di responsabilita' gia' seguita per gli
-altri nodi di questo grafo (es. Format non decide se rigenerare, lo fa Human Review).
-
-MAX_POSTS_TO_PROCESS (opzionale, 15/09/2026): per l'esame basta dimostrare la
-pipeline su al massimo 2 post, non su tutti e 6 quelli pianificati - ma il Planner
-deve CONTINUARE a pianificare/giustificare una sequenza di 6 (richiesto dalla
-specifica "pianifica una sequenza", e vedi DEFAULT_N_POSTS in planner.py: una
-sequenza troppo corta e' segnalata li' come probabile causa del voto non massimo di
-GymAssistant). Quindi la riduzione va fatta qui, non in planner.py: questo nodo
-pianifica per intero ma SMETTE DI ELABORARE (research/draft/revisione/scrittura KG)
-dopo N post, anche se il piano ne prevede di piu' - una scelta esplicita per velocizzare
-i test/la demo d'esame (ogni post costa ~10-15 minuti con qwen3:8b), non per pigrizia:
-il piano completo resta comunque visibile e giustificato nel reasoning_trace, solo la
-sua ESECUZIONE viene troncata. Se non impostata, nessun limite (comportamento
-originale, elabora l'intero piano)."""
+"""Nodo select_next_post: fa avanzare il grafo sui post pianificati, uno alla
+volta (chiamato dopo il Planner e dopo ogni KG Update). MAX_POSTS_TO_PROCESS
+(opzionale) tronca l'ESECUZIONE a N post per velocizzare demo/test, senza accorciare
+il piano pianificato/giustificato dal Planner."""
 from __future__ import annotations
 
 import os
@@ -39,25 +12,17 @@ from src.agent.state import AgentState
 
 
 def select_next_post(state: AgentState) -> AgentState:
-    """Nodo del grafo LangGraph. Legge post_plan/current_post_index, e:
-    - se il piano e' vuoto o e' stato esaurito (indice >= len(post_plan)), OPPURE se
-      e' stato raggiunto il limite MAX_POSTS_TO_PROCESS (vedi commento in cima al
-      modulo), ritorna current_post=None (il chiamante instrada verso END, vedi
-      _route_after_select in graph.py) e logga il motivo esatto (i due casi sono
-      distinti nel reasoning_trace - "piano esaurito" non e' la stessa cosa di "run
-      troncato apposta");
-    - altrimenti imposta current_post sul post successivo del piano e RESETTA
-      research_summary/draft/review_decision/tool_outputs a vuoto, cosi' il post
-      nuovo parte da uno stato pulito e non eredita claim/bozze/decisioni (o
-      osservazioni di tool) del post PRECEDENTE gia' concluso."""
+    """Legge post_plan/current_post_index: se il piano e' esaurito o si e' raggiunto
+    MAX_POSTS_TO_PROCESS ritorna current_post=None (il grafo instrada verso END);
+    altrimenti imposta current_post sul post successivo e RESETTA research_summary/
+    draft/review_decision/tool_outputs, cosi' il post nuovo non eredita nulla del
+    precedente."""
     reasoning_trace = list(state.get("reasoning_trace", []))
     post_plan = state.get("post_plan") or []
 
     _raw_index = state.get("current_post_index")
-    # None = prima chiamata di questo nodo in questo run (subito dopo il Planner),
-    # non ancora stato elaborato nessun post - si parte dall'indice 0. Un indice gia'
-    # presente (chiamata successiva, dopo un KG Update) significa invece "quel post e'
-    # concluso (approvato/scartato/fallito), passa al successivo" - da qui il +1.
+    # None = prima chiamata (subito dopo il Planner), si parte dall'indice 0;
+    # altrimenti quel post e' concluso, si passa al successivo.
     idx = 0 if _raw_index is None else _raw_index + 1
 
     # MAX_POSTS_TO_PROCESS: stessa gestione difensiva di RESEARCH_POST_INDEX in

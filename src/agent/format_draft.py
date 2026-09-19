@@ -1,31 +1,5 @@
-"""
-Format/Draft node (roadmap punto 6, dopo Research) - terzo nodo vero del grafo.
-
-Genera il testo effettivo del post da pubblicare, usando ESCLUSIVAMENTE i claim che
-il nodo Research ha raccolto E che sono sopravvissuti a TUTTE le verifiche gia'
-implementate li' (source_well_formed, source_grounded, format_valid, class_valid) -
-non avrebbe senso aver costruito tutta questa validazione nei nodi precedenti per poi
-lasciare che il drafting la ignori e scriva comunque con qualunque claim gli arriva.
-I claim NON verificati (o verificati falsi) vengono scartati QUI IN CODICE, prima di
-arrivare all'LLM - non lasciato alla sua discrezione (stesso principio "codice invece
-di prompt" ormai consolidato in questo progetto, vedi guida di progetto).
-
-K-RAG/coerenza con contenuti precedenti in fase di drafting (richiesto esplicitamente
-dalla specifica, distinto dalla stessa esigenza gia' soddisfatta in fase di ricerca -
-li' serviva a evitare ripetizioni di ricerca, qui serve a collegare il post a
-contenuti gia' pubblicati): il KG viene interrogato di nuovo con una chiamata FISSA in
-codice, stesso principio della chiamata KG fissa nel nodo Research (08/09/2026) - non
-serve alcun giudizio dell'LLM per decidere SE controllare la coerenza in fase di
-drafting, e' un passo sempre necessario.
-
-Caso limite gestito esplicitamente: se NESSUN claim sopravvive alla verifica (gia'
-osservato nei test del nodo Research), il post viene comunque scritto ma il prompt lo
-istruisce a restare esplicitamente generico (stesso principio anti-allucinazione gia'
-applicato al Planner quando mancano dati concreti) invece di inventare contenuto
-specifico per riempire il vuoto - e un warning esplicito lo segnala nel
-reasoning_trace, cosi' il futuro nodo Human Review (prossimo step della roadmap) sa
-che questo post necessita di attenzione extra in revisione.
-"""
+"""Nodo Format/Draft: genera il testo del post usando solo i claim verificati da
+Research, interrogando di nuovo il KG per coerenza con i post gia' pubblicati."""
 from __future__ import annotations
 
 import datetime
@@ -167,19 +141,15 @@ def draft_post(state: AgentState) -> AgentState:
     ) or "(nessun claim verificato disponibile per questo post - vedi regola sul caso vuoto)"
 
     # Data reale di oggi, iniettata qui per lo stesso motivo del nodo Research
-    # (10/09/2026): senza, questo nodo non ha modo di giudicare se un claim
-    # verificato ma non recente vada presentato come "recente" nel testo - osservato
-    # un caso reale in cui un articolo del 2023 e' stato descritto come notizia
-    # "degli ultimi mesi" nella bozza finale.
+    # senza data, questo nodo non ha modo di giudicare se un claim verificato ma non
+    # recente vada presentato come "recente" nel testo - osservato un articolo datato
+    # descritto come notizia "degli ultimi mesi" nella bozza finale.
     _oggi = datetime.date.today().strftime("%d/%m/%Y")
 
-    # La "motivazione" scritta dal Planner spesso contiene cifre specifiche prese dal
-    # dataset locale (es. "winrate del 54.8%") - utili come contesto quando ci sono
-    # claim verificati a supportarle, ma un canale di fuga quando non ce ne sono: il
-    # 10/09/2026 e' stato osservato un caso con 0 claim verificati in cui il post
-    # finale conteneva comunque quelle cifre, aggirando la regola "post generico senza
-    # numeri" - il modello le ha semplicemente riprese da qui invece che dai claim.
-    # Quando trusted_claims e' vuoto, questo campo viene percio' OMESSO dal prompt.
+    # La "motivazione" del Planner spesso contiene cifre prese dal dataset locale -
+    # utili come contesto quando ci sono claim verificati a supportarle, ma un canale
+    # di fuga quando non ce ne sono (osservato un post a 0 claim che riprendeva quelle
+    # cifre invece di restare generico). Con trusted_claims vuoto, il campo e' OMESSO.
     if trusted_claims:
         motivazione_line = f"Motivazione dal Planner: {current_post.get('justification')}\n\n"
     else:
@@ -294,10 +264,8 @@ def draft_post(state: AgentState) -> AgentState:
                     "[Format] [WARNING] ATTENZIONE PRIORITARIA: 0 claim verificati per questo post, "
                     f"ma il testo generato enfatizza (tra asterischi) delle entita' specifiche "
                     f"({_entita_enfatizzate[:5]}) - potrebbero essere nomi di carte o dati inventati "
-                    "invece che concetti generali di gioco (caso reale osservato il 16/09/2026: due "
-                    "nomi di carta non riscontrabili come traduzione italiana ufficiale di nessuna "
-                    "carta reale). NON pubblicare senza controllare a mano se queste entita' sono "
-                    "reali e pertinenti."
+                    "invece che concetti generali di gioco. NON pubblicare senza controllare a mano "
+                    "se queste entita' sono reali e pertinenti."
                 )
 
         # Verifica minima in codice (stesso principio gia' visto in research.py): le
@@ -316,14 +284,12 @@ def draft_post(state: AgentState) -> AgentState:
                 "riformulata o aggiunta dall'LLM, controllare a mano (campo 'fonti_non_riconosciute')."
             )
 
-        # Rete di sicurezza in codice (18/09/2026), stesso principio dei due controlli
-        # sopra (che pero' girano SOLO quando trusted_claims e' vuoto) - qui il
-        # controllo gira SEMPRE, anche con claim verificati presenti: una percentuale
-        # che compare SIA nel testo generato SIA nel Topic/Motivazione del Planner,
-        # ma NON nel testo dei claim verificati, e' probabilmente una cifra non
-        # verificata agganciata a una citazione vera per un dato diverso (vedi
-        # _source_is_grounded in research.py per la protezione equivalente e piu'
-        # a monte, sulla stessa classe di problema).
+        # Rete di sicurezza in codice, stesso principio dei due controlli sopra (che
+        # pero' girano solo a trusted_claims vuoto) - questo gira SEMPRE: una
+        # percentuale che compare sia nel testo generato sia nel Topic/Motivazione del
+        # Planner, ma non nel testo dei claim verificati, e' probabilmente una cifra
+        # non verificata agganciata a una citazione vera per un dato diverso (vedi
+        # _source_is_grounded in research.py per la protezione equivalente a monte).
         def _estrai_percentuali(testo: str) -> set:
             return {
                 m.replace(",", ".")

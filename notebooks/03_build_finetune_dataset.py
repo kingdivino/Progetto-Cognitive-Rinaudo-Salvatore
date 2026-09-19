@@ -74,37 +74,22 @@ OUT_PATH = os.path.join(OUT_DIR, "finetune_dataset.csv")
 
 MIN_GAMES = 30  # sotto questa soglia il winrate è considerato troppo rumoroso
 
-# USE_METASTATS_DATA (15/09/2026): la patch di bilanciamento 36.4.2 e' uscita il
-# 03/09/2026 (verificato su news.blizzard.com/HearthPwn) - proprio la data dell'ultimo
-# snapshot metastats.net raccolto (lo snapshot del 01/09 e' sicuramente pre-patch,
-# quello del 03/09 ambiguo). La patch ha modificato carte che possono comparire nei
-# mazzi del dataset (nerf: The Forbidden Sequence, Spiderling, The Food Chain; buff:
-# Agamaggan, Seismopod, Dread Leviathan). I winrate raccolti da metastats.net (01-03/09)
-# descrivono quindi un meta diverso da quello raccolto da HSReplay.net oggi (15/09,
-# post-patch di 12 giorni) - mescolare le due fonti vorrebbe dire associare alla STESSA
-# combinazione di feature (curva di mana, meccaniche, ecc.) un'etichetta di winrate
-# vera in momenti diversi del bilanciamento, senza che il modello abbia modo di saperlo
-# (scrape_date resta nel CSV come metadato ma non e' usato come feature di training) -
-# rumore nelle label, non solo "dati vecchi". Deciso di usare SOLO HSReplay.net da
-# questo momento in poi (si aggiorna nell'ordine di ore, non di settimane, quindi resta
-# internamente coerente con se stesso). Il caricamento di metastats.net
-# (load_all_snapshots, sotto) NON e' stato cancellato - solo escluso dal merge finale -
-# nel caso in futuro serva un confronto pre/post patch o si torni a usarlo.
+# USE_METASTATS_DATA: gli snapshot metastats.net raccolti sono a cavallo di una patch
+# di bilanciamento (alcune carte del dataset nerfate/buffate nel mezzo), mentre
+# HSReplay.net si aggiorna nell'ordine di ore ed e' quindi internamente coerente con
+# se stesso. Mescolare le due fonti vorrebbe dire associare alla STESSA combinazione
+# di feature un'etichetta di winrate vera in momenti diversi del bilanciamento -
+# rumore nelle label, non solo "dati vecchi". Si usa quindi SOLO HSReplay.net; il
+# caricamento di metastats.net (load_all_snapshots, sotto) resta nel codice, solo
+# escluso dal merge finale, per un eventuale confronto pre/post patch.
 USE_METASTATS_DATA = False
 
 # Costo in polvere arcana per craftare UNA copia non dorata di ogni rarita' (valori
-# fissi e stabili del gioco, non cambiano con le espansioni). Aggiunto il 08/09/2026
-# su richiesta dell'utente ("sarebbe utile sapere il costo in polvere di un mazzo").
-# NON serve alcuna fonte esterna (ne' HSReplay ne' altro): la decklist (carta +
-# quantita') e la rarita' di ogni carta (gia' letta da HearthstoneJSON per altre
-# feature, vedi counts_by_rarity sotto) bastano da sole per calcolarlo in modo
-# esatto - stessa lezione gia' imparata con le espansioni Standard (data/raw/hsreplay/
-# standard_legal_sets.json): quando un dato e' calcolabile localmente da fonti gia'
-# affidabili, e' meglio che affidarsi a un endpoint di terzi che potrebbe non
-# esporlo, cambiare, o (come successo li') significare qualcosa di diverso da quanto
-# sembra. Copre solo le copie standard/non dorate (le decklist che scarichiamo
-# riportano solo id carta + quantita', mai la qualita' della copia - dorato/diamante/
-# firma costano di piu' ma non sono distinguibili qui).
+# fissi e stabili del gioco). Non serve alcuna fonte esterna: decklist (carta +
+# quantita') e rarita' (gia' letta da HearthstoneJSON per altre feature) bastano a
+# calcolarlo in modo esatto - meglio di un endpoint di terzi che potrebbe non
+# esporlo o cambiare significato. Copre solo copie standard/non dorate (le decklist
+# scaricate non distinguono dorato/diamante/firma).
 DUST_COST_BY_RARITY = {"COMMON": 40, "RARE": 100, "EPIC": 400, "LEGENDARY": 1600, "OTHER": 0}
 # Carte che cambiano le regole di costruzione del mazzo (vedi nota nel docstring del
 # modulo) - usate per marcare i mazzi con has_special_deckbuild, non per scartarli.

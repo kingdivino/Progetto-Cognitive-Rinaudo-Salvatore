@@ -1,15 +1,5 @@
-"""
-KG Update node (roadmap punto 8, ultimo nodo del grafo) - scrive sul Knowledge Graph
-SOLO quando il nodo Human Review ha registrato un'approvazione esplicita
-(review_decision == "approved"), come richiesto dalla specifica ("Il KG si aggiorna
-SOLO dopo approvazione").
-
-Chiamata FISSA in codice a update_knowledge_graph (src/tools/kg_tool.py), non
-lasciata a un ciclo ReAct - stesso principio gia' consolidato per le chiamate KG in
-Research/Format (query_knowledge_graph invocato direttamente in codice li'): scrivere
-sul KG non richiede nessun giudizio del modello, e' un passo meccanico che segue da
-una decisione gia' presa altrove (l'approvazione umana).
-"""
+"""Nodo KG Update: scrive il post approvato nel Knowledge Graph (chiamata fissa,
+solo se review_decision == "approved")."""
 from __future__ import annotations
 
 import time
@@ -22,12 +12,8 @@ from src.tools.kg_tool import update_knowledge_graph
 
 
 def update_kg(state: AgentState) -> AgentState:
-    """Nodo KG Update del grafo LangGraph. Scrive il post approvato sul Knowledge
-    Graph SOLO se review_decision == "approved" (doppio controllo: il routing del
-    grafo - vedi src/agent/graph.py - dovrebbe gia' garantirlo, ma questo nodo non si
-    fida solo del controllo di flusso, stesso principio anti-assunzione gia' visto
-    altrove in questo progetto). Ritorna lo stato aggiornato con
-    reasoning_trace/kg_summary/timings popolati."""
+    """Scrive il post approvato sul Knowledge Graph, ricontrollando review_decision
+    == "approved" invece di fidarsi solo del routing del grafo."""
     node_start = time.perf_counter()
     reasoning_trace = list(state.get("reasoning_trace", []))
     kg_summary = dict(state.get("kg_summary", {}))

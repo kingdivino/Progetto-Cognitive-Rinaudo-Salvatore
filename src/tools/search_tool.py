@@ -1,15 +1,6 @@
-"""
-Search tool (uno dei 3 tool minimi obbligatori dalla specifica) - ricerca web via
-Tavily, per verificare fatti recenti/attuali che il RAG locale (statico, basato su
-HearthstoneJSON) non puo' coprire: espansioni, patch, tornei, annunci ufficiali.
-
-Il parametro `justification` e' obbligatorio per requisito di progetto ("ogni
-invocazione di tool va giustificata") - non e' un dettaglio decorativo: il nodo
-Research/ReAct lo registra nel reasoning_trace cosi' si vede *perche'* l'agente ha
-deciso di cercare quella cosa, non solo cosa ha trovato. Il tool ufficiale
-langchain_tavily.TavilySearch non ha questo parametro nel suo schema, quindi lo
-wrappiamo in un tool nostro invece di esporlo direttamente all'LLM.
-"""
+"""Tool di ricerca web via Tavily, per fatti recenti che il RAG locale non copre
+(uno dei 3 tool minimi richiesti). Wrappato per esporre il parametro
+`justification`, assente nello schema di langchain_tavily.TavilySearch."""
 from __future__ import annotations
 
 from langchain_core.tools import tool

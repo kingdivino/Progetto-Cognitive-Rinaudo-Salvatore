@@ -1,24 +1,6 @@
-"""
-Planner — primo nodo vero del grafo LangGraph (roadmap punto 4, dopo lo scheletro di
-notebooks/00_hello_langgraph.py).
-
-Cosa fa (per soddisfare i requisiti delle specifiche sul Planning):
-1. Interroga il KG (Neo4j) per i topic gia' coperti e i post recenti - se il KG non e'
-   raggiungibile (es. Neo4j Desktop non avviato) non blocca l'esecuzione: logga
-   l'avviso nel reasoning_trace e procede assumendo nessuno storico. Questo e'
-   importante ora che il KG e' vuoto (nessun nodo "KG Update" esiste ancora): il
-   Planner deve comunque essere testabile end-to-end.
-2. Recupera una manciata di archetipi reali dai dati di scraping (vedi domain_data.py)
-   come materiale concreto su cui basare le proposte, invece di far inventare topic a
-   vuoto all'LLM.
-3. Chiede all'LLM (Ollama locale) di pianificare una sequenza di post futuri con
-   output STRUTTURATO (Pydantic): ogni post ha tipo/topic/justification - la
-   justification e' obbligatoria per requisito di progetto ("giustifica ordine e
-   selezione dei post").
-
-Nodi successivi da collegare qui in futuro: Research/ReAct (tool search/RAG/KG/
-fine-tuned) -> Format/Draft -> Human Review (interrupt) -> KG Update.
-"""
+"""Nodo Planner: interroga il KG per i topic gia' coperti, recupera archetipi reali
+da domain_data.py e chiede all'LLM di pianificare una sequenza di post futuri con
+output strutturato (tipo/topic/justification)."""
 from __future__ import annotations
 
 import json

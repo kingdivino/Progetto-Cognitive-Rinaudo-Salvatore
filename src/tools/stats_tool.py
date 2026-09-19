@@ -1,30 +1,7 @@
-"""
-Secondo tool aggiuntivo richiesto dalla specifica (claude/specifiche-progetto.md:
-"Tool minimi obbligatori... 4. Almeno 2 tool aggiuntivi progettati dal team, di cui
-almeno uno basato sul modello fine-tuned") - il primo e' assess_deck_power_level
-(src/tools/power_level_tool.py, basato sul modello fine-tuned), questo e' il secondo,
-non fine-tuned: interroga direttamente i dati REALI raccolti da HSReplay
-(data/processed/finetune_dataset.csv, la stessa fonte usata per il fine-tuning) per
-restituire winrate/popolarita' VERI di una classe, invece di lasciare che il modello
-li stimi (assess_deck_power_level) o li cerchi sul web (search_web, dove i risultati
-di questo progetto si sono ripetutamente rivelati privi di data o non recenti - vedi
-addendum del 18/09/2026). E' un dato di fatto verificabile, non un'opinione: zero
-rischio di allucinazione sui numeri, a differenza di un claim numerico scritto a
-parole dal modello dopo una ricerca web.
-
-Nota di scope: il dataset processato non conserva un nome di archetipo per mazzo (solo
-la classe e il formato, oltre alla composizione) - la granularita' di questo tool e'
-quindi per classe/formato, non per singolo archetipo con nome (es. "Priest" in
-Standard, non "Azalina Priest" nello specifico). Coerente con quanto Research rileva
-gia' da solo per ogni post (detected_class/detected_format in research.py) - stessa
-granularita', nessuna informazione in piu' da inventare.
-
-Usa sempre lo snapshot PIU' RECENTE su disco (non il train/val/test.jsonl congelato
-usato per il fine-tuning, che resta intenzionalmente fermo a 572 mazzi per la validita'
-del confronto tra i 3 run - vedi addendum fine-tuning): per un dato citato in un post
-del blog vogliamo il numero piu' aggiornato disponibile, non quello congelato per
-motivi sperimentali.
-"""
+"""Secondo tool aggiuntivo richiesto dalla specifica (il primo e'
+assess_deck_power_level, fine-tuned): interroga i dati reali HSReplay per il winrate/
+popolarita' di una classe/formato, invece di farli stimare al modello o cercare sul
+web. Usa sempre lo snapshot piu' recente su disco."""
 from __future__ import annotations
 
 import os

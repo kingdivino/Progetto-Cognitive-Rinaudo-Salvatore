@@ -1,33 +1,8 @@
-"""
-Costruzione del grafo LangGraph. Nodi presenti: Planner -> [select_next_post ->
-Research/ReAct -> Format/Draft -> Human Review -> KG Update] -> torna a
-select_next_post finche' il piano non e' esaurito (roadmap punti 4-8, grafo
-completo). Il nodo KG Update scrive sul Knowledge Graph SOLO quando 'review_decision'
-e' "approved" (vedi src/agent/kg_update.py); "regenerate" e "discarded" lo saltano.
-
-Ciclo sui post pianificati (src/agent/orchestrator.py, 11/09/2026): il Planner
-produce l'INTERO piano una sola volta, poi select_next_post fa avanzare il grafo un
-post alla volta attraverso Research/Format/Human Review/KG Update, finche' tutti i
-post del piano non sono stati elaborati (approvati, scartati con "rigenera"/"scarta",
-o falliti) - prima di questa data la pipeline elaborava sempre e solo UN post,
-scelto a mano con la variabile d'ambiente RESEARCH_POST_INDEX (rimasta come
-fallback solo per invocare research_topic() in isolamento, vedi li').
-
-Checkpointer richiesto dal nodo Human Review (interrupt()/Command(resume=...), vedi
-src/agent/human_review.py) - senza, interrupt() solleva un errore a runtime. Per i
-test di questo progetto (un singolo processo Python, mai riavviato tra la sospensione
-e la ripresa) basta un checkpointer in memoria (InMemorySaver) - un checkpointer su
-disco/DB servirebbe solo per riprendere una revisione dopo aver chiuso il processo,
-non necessario per gli obiettivi di questo progetto universitario.
-
-IMPORTANTE per chi chiama graph.invoke(...)/graph.stream(...): con un checkpointer
-impostato, LangGraph richiede un 'thread_id' esplicito in config (altrimenti solleva
-un errore) - vedi notebooks/09_test_human_review.py per il pattern completo
-(invoke -> se il risultato contiene '__interrupt__', mostrare la bozza e richiamare
-invoke con Command(resume=...) sullo stesso thread_id; con il ciclo su tutti i post,
-questo pattern generico gestisce automaticamente TUTTI i round di revisione di TUTTI
-i post, non serve nessuna modifica al notebook per questo).
-"""
+"""Costruzione del grafo LangGraph: Planner -> [select_next_post -> Research ->
+Format -> Human Review -> KG Update] -> torna a select_next_post finche' il piano
+non e' esaurito. Chi chiama graph.invoke/stream deve passare un 'thread_id' esplicito
+in config (richiesto dal checkpointer) - vedi notebooks/09_test_human_review.py per
+il pattern invoke/interrupt/resume."""
 from __future__ import annotations
 
 from langgraph.checkpoint.memory import InMemorySaver
@@ -43,25 +18,17 @@ from src.agent.state import AgentState
 
 
 def _route_after_review(state: AgentState) -> str:
-    """Instradamento dopo il nodo Human Review, basato su 'review_decision' (vedi
-    src/agent/human_review.py): "regenerate" torna al nodo Format per una nuova
-    bozza sullo STESSO post (stessi claim gia' verificati da Research); qualunque
-    altro valore ("approved", "discarded", o un default di sicurezza) va al nodo
-    KG Update, che scrive sul grafo solo se davvero 'review_decision' e' "approved"
-    (doppio controllo, vedi src/agent/kg_update.py) e poi (in ogni caso) passa la
-    mano a select_next_post per il post successivo del piano."""
+    """Instradamento dopo Human Review: "regenerate" torna a Format per una nuova
+    bozza sullo stesso post; qualunque altro valore va a KG Update (che scrive solo
+    se 'review_decision' e' davvero "approved")."""
     if state.get("review_decision") == "regenerate":
         return "format"
     return "kg_update"
 
 
 def build_graph(checkpointer=None):
-    """checkpointer: oggetto compatibile con l'interfaccia BaseCheckpointSaver di
-    LangGraph. Se None (default), ne viene creato uno in memoria (InMemorySaver) -
-    sufficiente per i test in un singolo processo di questo progetto. Passare un
-    checkpointer esplicito e' utile solo per condividerne uno tra piu' invocazioni
-    fatte da script diversi nello stesso processo (non un caso d'uso di questo
-    progetto per ora)."""
+    """checkpointer: BaseCheckpointSaver di LangGraph, o None per crearne uno in
+    memoria (InMemorySaver)."""
     if checkpointer is None:
         checkpointer = InMemorySaver()
 

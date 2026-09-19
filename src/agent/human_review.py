@@ -1,33 +1,7 @@
-"""
-Human Review node (roadmap punto 7, tra Format/Draft e KG Update).
-
-Requisito esplicito della specifica ("Human-in-the-loop"): "Prima di aggiornare il
-KG: mostra il post generato, permette approvazione / modifica / rigenerazione. Il KG
-si aggiorna SOLO dopo approvazione." Questo nodo e' il punto in cui questo requisito
-viene implementato - il nodo KG Update (roadmap punto 8) scrive sul grafo SOLO quando
-'review_decision' vale "approved".
-
-Azione aggiuntiva "scarta" (11/09/2026, non richiesta letteralmente dalla specifica
-ma non in contraddizione con essa - richiesta dall'utente dopo che il grafo ha
-iniziato a elaborare un piano intero di post, vedi src/agent/orchestrator.py): scarta
-l'intero POST (non solo la bozza attuale), utile quando il topic stesso non merita
-la pubblicazione e "rigenera" all'infinito non risolverebbe nulla. Vedi
-route_after_select/select_next_post in src/agent/orchestrator.py per come il grafo
-avanza al post successivo dopo uno scarto.
-
-Implementato con il meccanismo nativo di human-in-the-loop di LangGraph
-(interrupt()/Command(resume=...), vedi src/agent/graph.py per il checkpointer
-richiesto): il nodo sospende l'esecuzione qui, il chiamante (per ora un test da
-terminale, in futuro un'eventuale interfaccia) mostra la bozza a un umano e ne
-raccoglie la decisione, poi il grafo riprende quando viene re-invocato con
-Command(resume=<decisione>).
-
-ATTENZIONE (comportamento documentato di interrupt() in LangGraph): quando il grafo
-riprende da un interrupt, QUESTO NODO VIENE RIESEGUITO DA CAPO fino al punto
-dell'interrupt. Per questo il nodo resta deliberatamente privo di side-effect prima
-della chiamata a interrupt() (nessuna chiamata LLM/tool qui) - si limita a leggere lo
-stato gia' calcolato dai nodi precedenti e a preparare il payload da mostrare.
-"""
+"""Nodo Human Review: sospende l'esecuzione (interrupt()/Command(resume=...)) per
+far approvare/modificare/rigenerare/scartare la bozza a un umano prima
+dell'aggiornamento del KG. Nessun side-effect prima di interrupt(): il nodo viene
+rieseguito da capo quando il grafo riprende."""
 from __future__ import annotations
 
 from langgraph.types import interrupt
@@ -36,14 +10,10 @@ from src.agent.state import AgentState
 
 
 def human_review(state: AgentState) -> AgentState:
-    """Nodo Human Review del grafo LangGraph. Riceve 'draft' (gia' popolato dal nodo
-    Format), sospende l'esecuzione con interrupt() mostrando la bozza e i warning ad
-    alta priorita' gia' calcolati a monte, poi applica la decisione umana ricevuta al
-    resume: "approva" (nessuna modifica), "modifica" (sovrascrive titolo/corpo con il
-    testo fornito, poi tratta come approvata), "rigenera" (scarta SOLO la bozza, il
-    grafo torna al nodo Format per lo stesso post) o "scarta" (scarta l'intero post,
-    il grafo passa al post successivo del piano). Ritorna lo stato aggiornato con
-    reasoning_trace/draft/review_decision popolati."""
+    """Sospende l'esecuzione con interrupt() mostrando la bozza e i warning, poi
+    applica la decisione umana al resume: "approva", "modifica" (sovrascrive
+    titolo/corpo), "rigenera" (torna a Format sullo stesso post) o "scarta" (passa al
+    post successivo)."""
     reasoning_trace = list(state.get("reasoning_trace", []))
     draft = state.get("draft")
 
@@ -139,16 +109,13 @@ def human_review(state: AgentState) -> AgentState:
         return {**state, "reasoning_trace": reasoning_trace, "review_decision": "regenerate"}
 
     if azione == "scarta":
-        # Diverso da "rigenera": qui non e' la BOZZA il problema (potrebbe anche
-        # essere scritta bene), e' il TOPIC stesso che l'utente ha deciso di non voler
-        # pubblicare - continuare a rigenerare all'infinito non lo risolverebbe.
-        # Aggiunto l'11/09/2026 su richiesta esplicita dell'utente: non e' uno dei tre
-        # esiti nominati dalla specifica (approvazione/modifica/rigenerazione), ma non
-        # la contraddice nemmeno - resta comunque vero che "il KG si aggiorna SOLO
-        # dopo approvazione" (qui non c'e' approvazione, quindi nessuna scrittura,
-        # identico a "rigenera" su questo punto specifico). Il routing (vedi
-        # src/agent/graph.py) fa la differenza: "rigenera" torna a Format per lo
-        # STESSO post, "discarded" avanza al post successivo del piano.
+        # Diverso da "rigenera": qui non e' la BOZZA il problema, e' il TOPIC stesso
+        # che l'utente ha deciso di non voler pubblicare - rigenerare all'infinito non
+        # lo risolverebbe. Non e' uno dei tre esiti nominati dalla specifica
+        # (approvazione/modifica/rigenerazione), ma non la contraddice: resta vero che
+        # "il KG si aggiorna SOLO dopo approvazione" (qui nessuna scrittura, come
+        # "rigenera"). Il routing (graph.py) fa la differenza: "rigenera" torna a
+        # Format per lo STESSO post, "discarded" avanza al post successivo del piano.
         reasoning_trace.append(
             "[HumanReview] Post scartato dall'utente (non solo la bozza) - nessuna "
             "scrittura sul KG per questo post, si passa al prossimo del piano pianificato "
