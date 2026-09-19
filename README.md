@@ -45,10 +45,10 @@ Il file `.env` non va mai condiviso o caricato su git (è già escluso).
 ### 5. Verifica che tutto funzioni
 
 ```bash
-python notebooks/00_hello_langgraph.py
+python notebooks/10_test_kg_update.py
 ```
 
-Se stampa una risposta del modello, l'ambiente base è pronto.
+Esegue il grafo completo end-to-end (richiede Ollama e Neo4j avviati, indice RAG gia' costruito).
 
 ## Struttura del progetto
 
@@ -57,7 +57,7 @@ Se stampa una risposta del modello, l'ambiente base è pronto.
 - `src/kg/` — codice di interazione con Neo4j
 - `data/raw/` — dati grezzi scaricati (card data, dataset per fine-tuning)
 - `data/processed/` — dati puliti/trasformati
-- `notebooks/` — esperimenti e script di verifica
+- `notebooks/` — script di scraping/feature engineering/fine-tuning e test end-to-end del grafo
 - `tests/` — test dei singoli componenti
 
 ## Stato del progetto
