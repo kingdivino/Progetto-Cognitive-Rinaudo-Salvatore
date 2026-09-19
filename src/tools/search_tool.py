@@ -5,22 +5,11 @@ from __future__ import annotations
 
 from langchain_core.tools import tool
 
-# Livelli di affidabilita' delle fonti web (solo URL - RAG/KG sono dati locali
-# strutturati, questione diversa). Pubblici (non in research.py) perche' servono a
-# due scopi: classificare a posteriori una fonte gia' trovata (research.py importa
-# da qui) e restringere a priori cosa Tavily puo' restituire (sotto) - un'unica
-# lista invece di due copie che rischierebbero di disallinearsi.
-#
-# Classificazione MECCANICA dal dominio dell'URL (nessun giudizio semantico, per
-# questo verificata in codice e non lasciata al prompt):
-# - "aggregato": siti di statistiche/decklist aggregate su molti giocatori
-#   (hsreplay.net, hearthpwn.com, metastats.net, hearthstone.wiki.gg) - un dato su
-#   un campione ampio, non l'opinione di una persona sola.
-# - "ufficiale": domini Blizzard di annunci/patch notes (non i forum, che restano
-#   contenuto generato dagli utenti anche se ospitato su un dominio Blizzard).
-# - "opinione_singola": contenuto generato da un singolo autore senza aggregazione
-#   (video, forum, reddit, social) - un'esperienza/opinione individuale, non un dato
-#   di popolazione. Esclusa di proposito da TRUSTED_SEARCH_DOMAINS sotto.
+# Livelli di affidabilita' delle fonti web per dominio (pubblici, non in
+# research.py, perche' servono anche a restringere Tavily sotto): "aggregato"
+# (statistiche/decklist su molti giocatori), "ufficiale" (domini Blizzard di
+# annunci/patch notes), "opinione_singola" (contenuto di un singolo autore, esclusa
+# da TRUSTED_SEARCH_DOMAINS).
 SOURCE_TIER_DOMAINS = {
     "aggregato": ("hsreplay.net", "hearthpwn.com", "metastats.net", "hearthstone.wiki.gg"),
     "ufficiale": ("playhearthstone.com", "news.blizzard.com"),
@@ -30,18 +19,9 @@ SOURCE_TIER_DOMAINS = {
     ),
 }
 
-# Domini a cui restringere Tavily: SOLO "aggregato" + "ufficiale", MAI
-# "opinione_singola" (dopo un run in cui search_web restituiva quasi solo video
-# YouTube/post Reddit) - piu' affidabile chiedere a Tavily di non restituire quei
-# domini che chiedere all'LLM di ignorarli una volta visti.
-#
-# Compromesso reale: restringere aumenta la probabilita' di "nessun risultato" per
-# query molto specifiche non coperte da questi domini - preferibile comunque a un
-# risultato di bassa qualita' citato come autorevole; se capita spesso in pratica,
-# vale la pena ampliare la lista invece di rimuovere la restrizione.
-#
-# _run_tavily_search sotto e' protetto con un fallback (TypeError) nel caso la
-# versione installata di langchain_tavily non supporti include_domains.
+# Domini a cui restringere Tavily: solo "aggregato" + "ufficiale", mai
+# "opinione_singola" - piu' affidabile impedire a Tavily di restituire quei domini
+# che chiedere all'LLM di ignorarli una volta visti.
 TRUSTED_SEARCH_DOMAINS = SOURCE_TIER_DOMAINS["aggregato"] + SOURCE_TIER_DOMAINS["ufficiale"]
 
 
@@ -56,8 +36,8 @@ def _run_tavily_search(query: str):
     try:
         tavily = TavilySearch(**kwargs)
     except TypeError:
-        # Vedi nota sopra: fallback se questa versione di langchain_tavily non
-        # accetta include_domains - meglio una ricerca non restretta che un errore.
+        # Fallback se questa versione di langchain_tavily non accetta
+        # include_domains - meglio una ricerca non ristretta che un errore.
         kwargs.pop("include_domains", None)
         tavily = TavilySearch(**kwargs)
     return tavily.invoke({"query": query})

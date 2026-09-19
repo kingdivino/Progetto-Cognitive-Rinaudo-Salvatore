@@ -49,14 +49,11 @@ def load_archetype_signals(
     df = df.copy()
     df["deck_name"] = df["deck_id"].map(names).fillna(df["deck_class"])
     if "formato" not in df.columns:
-        # CSV generato prima del fix Standard/Wild del 07/09/2026 (rilanciare
-        # 03_build_finetune_dataset.py per il dato reale) - degrada con un default
-        # invece di far crashare il Planner, stesso principio del KG irraggiungibile.
+        # CSV precedente al fix Standard/Wild - degrada con un default invece di
+        # crashare il Planner (rilanciare 03_build_finetune_dataset.py per il dato reale).
         df["formato"] = "Standard"
     if "costo_polvere" not in df.columns:
-        # CSV generato prima dell'aggiunta del costo in polvere (08/09/2026) -
-        # stesso principio di degradare invece di crashare; None esclude il campo dal
-        # dizionario finale invece di mostrare uno zero fuorviante (vedi sotto).
+        # Stesso principio: None esclude il campo invece di mostrare uno zero fuorviante.
         df["costo_polvere"] = None
 
     if covered_topics:
@@ -85,9 +82,8 @@ def load_archetype_signals(
             "numero_carte_mazzo": int(row["n_cards_total"]),
             "formato": row["formato"],  # "Standard" o "Wild" (vedi format_rules.py)
         }
-        # Costo in polvere arcana: calcolato localmente da decklist + rarita' delle
-        # carte (notebooks/03_build_finetune_dataset.py), non da fonte esterna. Omesso
-        # (invece di un fuorviante 0/None) se il CSV e' precedente a questa aggiunta.
+        # Costo in polvere (calcolato localmente, notebooks/03) - omesso se assente
+        # invece di un fuorviante 0/None.
         if pd.notna(row["costo_polvere"]):
             entry["costo_polvere"] = int(row["costo_polvere"])
         result.append(entry)

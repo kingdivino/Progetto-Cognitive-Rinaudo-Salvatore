@@ -98,10 +98,8 @@ def draft_post(state: AgentState) -> AgentState:
         )
         return {**state, "reasoning_trace": reasoning_trace, "draft": None}
 
-    # Filtro in codice (non lasciato all'LLM): solo i claim che hanno superato TUTTE
-    # le verifiche gia' fatte a monte nel nodo Research arrivano qui. None (non
-    # verificabile) e' tollerato per format_valid/class_valid (significa "non
-    # applicabile", non "invalido" - es. claim con fonte web, non RAG) ma MAI per
+    # Solo i claim che hanno superato tutte le verifiche di Research arrivano qui.
+    # None e' tollerato per format_valid/class_valid ("non applicabile"), mai per
     # source_well_formed/source_grounded, che devono essere esplicitamente True.
     trusted_claims = [
         c for c in claims
@@ -120,10 +118,8 @@ def draft_post(state: AgentState) -> AgentState:
            if n_discarded else ".")
     )
 
-    # Chiamata KG fissa per la coerenza in fase di drafting - stesso principio della
-    # chiamata KG fissa nel nodo Research (08/09/2026): e' sempre lo stesso passo
-    # necessario (richiesto esplicitamente dalla specifica per la fase di drafting),
-    # nessun giudizio dell'LLM serve per decidere se farla.
+    # Chiamata KG fissa per la coerenza in fase di drafting (stesso principio della
+    # chiamata fissa nel nodo Research) - nessun giudizio dell'LLM sul se farla.
     _kg_call_start = time.perf_counter()
     try:
         kg_observation = query_knowledge_graph.invoke({
@@ -140,16 +136,12 @@ def draft_post(state: AgentState) -> AgentState:
         f"- {c.get('claim')} (fonte: {c.get('source')})" for c in trusted_claims
     ) or "(nessun claim verificato disponibile per questo post - vedi regola sul caso vuoto)"
 
-    # Data reale di oggi, iniettata qui per lo stesso motivo del nodo Research
-    # senza data, questo nodo non ha modo di giudicare se un claim verificato ma non
-    # recente vada presentato come "recente" nel testo - osservato un articolo datato
-    # descritto come notizia "degli ultimi mesi" nella bozza finale.
+    # Data reale di oggi (stesso motivo del nodo Research: senza, il nodo non puo'
+    # giudicare se un claim non recente vada presentato come "recente" nel testo).
     _oggi = datetime.date.today().strftime("%d/%m/%Y")
 
-    # La "motivazione" del Planner spesso contiene cifre prese dal dataset locale -
-    # utili come contesto quando ci sono claim verificati a supportarle, ma un canale
-    # di fuga quando non ce ne sono (osservato un post a 0 claim che riprendeva quelle
-    # cifre invece di restare generico). Con trusted_claims vuoto, il campo e' OMESSO.
+    # La motivazione del Planner puo' contenere cifre non verificate: canale di fuga
+    # se non ci sono claim a supportarle - con trusted_claims vuoto, il campo e' omesso.
     if trusted_claims:
         motivazione_line = f"Motivazione dal Planner: {current_post.get('justification')}\n\n"
     else:
@@ -191,9 +183,8 @@ def draft_post(state: AgentState) -> AgentState:
         llm_time_total += time.perf_counter() - _llm_start
         draft_dict = draft.model_dump()
 
-        # Dedup in codice delle fonti dichiarate (il prompt lo richiede gia', ma non
-        # basta da solo - osservate fonti ripetute nonostante la regola). dict.fromkeys
-        # preserva l'ordine di prima apparizione, a differenza di un set puro.
+        # Dedup in codice delle fonti dichiarate (il prompt lo richiede ma non basta da
+        # solo). dict.fromkeys preserva l'ordine di prima apparizione.
         _fonti_originali = draft_dict.get("fonti_citate", [])
         _fonti_deduplicate = list(dict.fromkeys(_fonti_originali))
         if len(_fonti_deduplicate) < len(_fonti_originali):
@@ -204,8 +195,8 @@ def draft_post(state: AgentState) -> AgentState:
             )
         draft_dict["fonti_citate"] = _fonti_deduplicate
 
-        # Rete di sicurezza in codice per il genere di "il meta"/"la meta" (vedi
-        # fix_meta_gender in format_rules.py) - la regola nel prompt non basta da sola.
+        # Rete di sicurezza per il genere di "il meta" (vedi fix_meta_gender), la
+        # regola nel prompt non basta da sola.
         draft_dict["titolo"], _n_fix_titolo = fix_meta_gender(draft_dict.get("titolo", ""))
         draft_dict["corpo"], _n_fix_corpo = fix_meta_gender(draft_dict.get("corpo", ""))
         if _n_fix_titolo or _n_fix_corpo:
@@ -226,12 +217,9 @@ def draft_post(state: AgentState) -> AgentState:
                 "questa bozza e' generica per costruzione, va trattata con priorita' alta nella "
                 "revisione umana (roadmap: nodo Human Review)."
             )
-            # Rete di sicurezza in codice: a 0 claim verificati il post dovrebbe restare
-            # generico, ma il fallback puo' non bastare se il testo contiene comunque
-            # cifre statistiche (percentuali, "N partite") - riprese ad es. dal campo
-            # Topic (sempre nel prompt, scritto dal Planner e non verificato). Si
-            # controllano titolo E corpo insieme: una cifra sospetta puo' finire in uno
-            # solo dei due mentre l'altro resta correttamente generico.
+            # A 0 claim il post dovrebbe restare generico, ma il fallback puo' non
+            # bastare se il testo contiene comunque cifre statistiche (da Topic/
+            # Motivazione, non verificate) - controllati titolo e corpo insieme.
             _sospetti = re.findall(
                 r"\d+[.,]?\d*\s?%|\b\d{2,}\s+partite\b",
                 f"{draft_dict.get('titolo', '')} {draft_dict.get('corpo', '')}",
@@ -245,16 +233,10 @@ def draft_post(state: AgentState) -> AgentState:
                     "questi numeri."
                 )
 
-            # Seconda rete di sicurezza, stesso principio ma per un leak diverso: a 0
-            # claim verificati il corpo puo' restare senza numeri (niente warning sopra)
-            # eppure nominare carte specifiche inventate (caso reale: nomi italiani non
-            # riscontrabili come traduzione ufficiale di nessuna carta, ne' nei risultati
-            # RAG di quella ricerca). Non e' verificabile in codice se un nome e' una
-            # carta reale (l'indice RAG e' solo in inglese, senza localizzazione italiana
-            # da confrontare), quindi si usa un segnale piu' debole ma utile: il modello
-            # tende a evidenziare i nomi di carta tra asterischi (enfasi Markdown), cosa
-            # che un post davvero generico non avrebbe motivo di fare. Falsi negativi
-            # possibili se il modello non usa asterischi, ma meglio di un leak silenzioso.
+            # Leak diverso, stesso principio: a 0 claim il corpo puo' nominare carte
+            # inventate senza numeri (niente warning sopra). Non verificabile a colpo
+            # sicuro (indice RAG solo in inglese), quindi segnale debole ma utile: il
+            # modello tende a evidenziare i nomi di carta tra asterischi.
             _entita_enfatizzate = re.findall(
                 r"\*([^*\n]{3,60})\*",
                 f"{draft_dict.get('titolo', '')} {draft_dict.get('corpo', '')}",
@@ -268,10 +250,8 @@ def draft_post(state: AgentState) -> AgentState:
                     "se queste entita' sono reali e pertinenti."
                 )
 
-        # Verifica minima in codice (stesso principio gia' visto in research.py): le
-        # fonti dichiarate nel post devono comparire ESATTAMENTE tra quelle dei
-        # claim verificati che gli sono stati dati - non fidarsi che l'LLM non ne
-        # abbia riformulate o aggiunte di nuove/inventate.
+        # Le fonti dichiarate devono comparire esattamente tra quelle dei claim
+        # verificati - non fidarsi che l'LLM non ne abbia riformulate o inventate.
         trusted_sources = {c.get("source") for c in trusted_claims}
         fonti_non_riconosciute = [
             f for f in draft_dict.get("fonti_citate", []) if f not in trusted_sources
@@ -284,12 +264,9 @@ def draft_post(state: AgentState) -> AgentState:
                 "riformulata o aggiunta dall'LLM, controllare a mano (campo 'fonti_non_riconosciute')."
             )
 
-        # Rete di sicurezza in codice, stesso principio dei due controlli sopra (che
-        # pero' girano solo a trusted_claims vuoto) - questo gira SEMPRE: una
-        # percentuale che compare sia nel testo generato sia nel Topic/Motivazione del
-        # Planner, ma non nel testo dei claim verificati, e' probabilmente una cifra
-        # non verificata agganciata a una citazione vera per un dato diverso (vedi
-        # _source_is_grounded in research.py per la protezione equivalente a monte).
+        # Stesso principio dei controlli sopra ma gira SEMPRE (non solo a 0 claim):
+        # una percentuale nel testo generato e nel Topic/Motivazione ma non nei claim
+        # verificati e' probabilmente non verificata (vedi _source_is_grounded).
         def _estrai_percentuali(testo: str) -> set:
             return {
                 m.replace(",", ".")

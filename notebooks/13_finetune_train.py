@@ -1,35 +1,7 @@
-"""
-STEP 6-7 della guida fine-tuning (claude/specifiche-progetto.md).
-
-STEP 6 - Tecnica: LoRA (libreria peft + trl) su un modello base piccolo
-(Qwen2.5-1.5B-Instruct di default, stesso modello/template gia' usato nel progetto di
-riferimento GymAssistant per il loro componente fine-tuned - vedi guida di progetto).
-Motivazione: full fine-tuning di un LLM, anche piccolo, non e' realistico sull'hardware
-disponibile (laptop con 4GB di VRAM dedicata, vedi nota hardware nella guida di
-progetto - lo stesso vincolo che ha guidato la scelta di modelli Ollama piccoli per il
-resto della pipeline); LoRA alza solo un numero ridotto di parametri allenabili, quindi
-resta fattibile anche con risorse limitate e con un dataset piccolo (~400 esempi di
-train).
-
-STEP 7 - Model selection: questo script e' parametrizzato via variabili d'ambiente
-(stesso principio gia' consolidato nel resto del progetto per MAX_POSTS_TO_PROCESS/
-OLLAMA_NUM_GPU/OLLAMA_REASONING - un valore diverso per run diverso, senza toccare il
-codice) cosi' da poter lanciare piu' configurazioni e confrontarle sul validation set
-SENZA modificare lo script:
-- LORA_RANK (default 8): rank della decomposizione LoRA.
-- LEARNING_RATE (default 2e-4): learning rate.
-- NUM_EPOCHS (default 3): epoche di training.
-- LORA_RUN_NAME (default "run"): nome della cartella di output, per non sovrascrivere
-  un run precedente quando se ne lancia un secondo per il confronto.
-
-Ogni run scrive le sue metriche di validation in
-data/processed/finetune_powerlevel/<LORA_RUN_NAME>/val_metrics.json, cosi' i vari run
-si possono confrontare senza doverli tenere tutti in memoria/RAM del terminale.
-
-Va eseguito nel venv Windows dell'utente (richiede torch/transformers/peft/trl, non
-disponibili nella sandbox cloud usata per scrivere questo codice) DOPO
-11_prepare_finetune_data.py.
-"""
+"""STEP 6-7 della guida fine-tuning (claude/specifiche-progetto.md): training LoRA
+(peft+trl) su Qwen2.5-1.5B-Instruct, parametrizzato via env (LORA_RANK, LEARNING_RATE,
+NUM_EPOCHS, LORA_RUN_NAME) per confrontare piu' run sul validation set senza toccare
+il codice. Va eseguito nel venv Windows dell'utente dopo 11_prepare_finetune_data.py."""
 from __future__ import annotations
 
 import json
@@ -63,10 +35,8 @@ def load_split(name: str) -> list[dict]:
 
 
 def to_chat_text(tokenizer, record: dict, include_answer: bool) -> str:
-    """Formatta un esempio come conversazione chat - durante il training la risposta
-    (l'etichetta vera) e' inclusa nel testo (il modello impara a generarla), durante
-    l'inferenza no (add_generation_prompt=True lascia il turno dell'assistente vuoto,
-    pronto per essere generato)."""
+    """Formatta un esempio come conversazione chat; risposta inclusa solo in training
+    (include_answer=True), turno assistente vuoto in inferenza."""
     messages = [{"role": "user", "content": TRAIN_PROMPT.format(deck_description=record["input"])}]
     if include_answer:
         messages.append({"role": "assistant", "content": record["label"]})
@@ -75,10 +45,8 @@ def to_chat_text(tokenizer, record: dict, include_answer: bool) -> str:
 
 
 def parse_label(generated_text: str) -> str:
-    """Stessa logica di 12_finetune_baseline.py - duplicata deliberatamente (file
-    indipendenti, eseguiti in momenti diversi) invece di un import incrociato tra
-    notebook, per restare coerenti con lo stile gia' usato per gli altri notebook di
-    questo progetto (ognuno autosufficiente)."""
+    """Stessa logica di 12_finetune_baseline.py, duplicata deliberatamente (notebook
+    autosufficienti)."""
     t = generated_text.lower()
     for label in LABELS:
         if label in t:
@@ -121,15 +89,12 @@ def main() -> None:
     model = AutoModelForCausalLM.from_pretrained(
         BASE_MODEL,
         dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
-        # 'dtype' (non 'torch_dtype', deprecato nella versione di transformers
-        # installata). bfloat16 sulla GPU: l'hardware (RTX 3050 Ti, Ampere) supporta
-        # bf16 nativamente - piu' stabile di fp16 per il training (stesso range di
-        # esponente di fp32, non serve loss scaling per evitare NaN).
+        # 'dtype' (non 'torch_dtype', deprecato). bf16 su GPU: piu' stabile di fp16,
+        # non serve loss scaling.
     )
 
-    # target_modules q/k/v/o_proj: i moduli di attenzione sono dove LoRA da'
-    # tipicamente il miglior rapporto tra parametri allenabili e qualita' per
-    # modelli di questa taglia.
+    # target_modules q/k/v/o_proj: i moduli di attenzione, miglior rapporto tra
+    # parametri allenabili e qualita' per modelli di questa taglia.
     lora_config = LoraConfig(
         r=LORA_RANK,
         lora_alpha=LORA_RANK * 2,
@@ -145,39 +110,25 @@ def main() -> None:
         num_train_epochs=NUM_EPOCHS,
         learning_rate=LEARNING_RATE,
         per_device_train_batch_size=1,
-        gradient_accumulation_steps=8,  # stesso batch effettivo (8) ma meno picco di
-        # memoria per passo - importante con solo 4GB di VRAM dedicata.
+        gradient_accumulation_steps=8,  # batch effettivo 8, meno picco memoria/passo
         logging_steps=10,
         save_strategy="steps",
-        save_steps=10,  # checkpoint ogni 10 step, non a fine epoca: con "epoch" il
-        # primo salvataggio arriverebbe troppo tardi se la sessione viene interrotta.
-        save_total_limit=3,  # tiene solo gli ultimi 3 checkpoint (un adapter LoRA e'
-        # piccolo ma si accumulerebbero comunque su una run lunga) - con
-        # load_best_model_at_end=True il Trainer protegge comunque il migliore.
+        save_steps=10,  # non a fine epoca: primo salvataggio troppo tardi altrimenti
+        save_total_limit=3,  # ultimi 3 checkpoint (load_best_model_at_end protegge il migliore)
         eval_strategy="steps",
-        eval_steps=10,  # stesso intervallo di save_steps, obbligatorio per
-        # load_best_model_at_end (deve essere un multiplo esatto).
-        load_best_model_at_end=True,  # aggiunto dopo un overfitting netto nel primo
-        # run (accuracy train 93%, validation 43%): invece dei pesi dell'ULTIMA epoca
-        # (i piu' overfittati), il Trainer ripristina il checkpoint con eval_loss piu'
-        # bassa - un early stopping "morbido" che permette piu' epoche senza il
-        # rischio di consegnare il checkpoint peggiore.
+        eval_steps=10,  # deve essere multiplo di save_steps per load_best_model_at_end
+        load_best_model_at_end=True,  # evita overfitting sull'ultima epoca, ripristina
+        # il checkpoint con eval_loss piu' bassa invece dell'ultimo.
         metric_for_best_model="eval_loss",
         greater_is_better=False,
         report_to=[],  # niente wandb - LangSmith copre l'agente, non il training
         dataset_text_field="text",
-        max_length=512,  # le descrizioni di mazzo sono brevi, 512 token bastano e
-        # tengono il training leggero sull'hardware limitato (nome del parametro
-        # 'max_length', non 'max_seq_length', rimosso nella versione di trl installata)
-        bf16=torch.cuda.is_available(),  # SFTConfig di default mette bf16=True, che
-        # richiede una GPU con supporto bf16 (Ampere+) - va disattivato esplicitamente
-        # su CPU, altrimenti il training si rifiuta di partire.
-        use_cpu=not torch.cuda.is_available(),  # esplicito, coerente col dtype sopra.
-        gradient_checkpointing=False,  # SFTConfig lo attiva di default, ma con un
-        # modello PEFT/LoRA senza enable_input_require_grads() causa tipicamente un
-        # errore "element 0 of tensors does not require grad" in backward (problema
-        # noto PEFT+gradient_checkpointing). Disattivato: il dataset e' piccolo e non
-        # serve risparmiare memoria GPU (CPU-only, nessuna VRAM in gioco).
+        max_length=512,  # descrizioni brevi, 512 token bastano (param 'max_length',
+        # non 'max_seq_length', rimosso in questa versione di trl)
+        bf16=torch.cuda.is_available(),  # default True in SFTConfig, va disattivato su CPU
+        use_cpu=not torch.cuda.is_available(),
+        gradient_checkpointing=False,  # con PEFT/LoRA senza enable_input_require_grads()
+        # causa un errore in backward (bug noto) - disattivato, dataset piccolo.
     )
 
     trainer = SFTTrainer(
@@ -188,9 +139,7 @@ def main() -> None:
         processing_class=tokenizer,
     )
 
-    # Ripresa automatica da un checkpoint precedente: se una run e' stata interrotta
-    # a meta', riparte da li' invece che da zero. Cerca l'ultimo checkpoint in
-    # OUTPUT_DIR; se non ce n'e' nessuno, parte normalmente da zero.
+    # Ripresa automatica da un checkpoint precedente se una run e' stata interrotta.
     from transformers.trainer_utils import get_last_checkpoint
     last_checkpoint = get_last_checkpoint(OUTPUT_DIR) if os.path.isdir(OUTPUT_DIR) else None
     if last_checkpoint:
@@ -212,8 +161,7 @@ def main() -> None:
     trainer.save_model(OUTPUT_DIR)
     tokenizer.save_pretrained(OUTPUT_DIR)
 
-    # Valutazione sul validation set - stesso schema di 12_finetune_baseline.py, per
-    # essere direttamente confrontabile con le due baseline.
+    # Valutazione sul validation set, stesso schema di 12_finetune_baseline.py.
     model.eval()
     device = "cuda" if torch.cuda.is_available() else "cpu"
     y_true, y_pred = [], []

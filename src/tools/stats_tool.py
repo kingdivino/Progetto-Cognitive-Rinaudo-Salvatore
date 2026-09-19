@@ -13,12 +13,9 @@ PROCESSED_PATH = os.path.join("data", "processed", "finetune_dataset.csv")
 
 
 def _load_df() -> pd.DataFrame:
-    # Nessun caching in memoria (a differenza del modello fine-tuned in
-    # power_level_tool.py): leggere un CSV di poche centinaia di righe ad ogni
-    # chiamata costa pochi millisecondi, molto meno del rischio di servire dati
-    # non aggiornati se lo scrape viene rilanciato durante la stessa sessione lunga
-    # dell'agente (vedi 07_scrape_hsreplay.py, rilanciato piu' volte in questo
-    # progetto proprio mentre l'agente restava attivo).
+    # Nessun caching (a differenza di power_level_tool.py): il CSV e' piccolo, meglio
+    # rileggerlo ad ogni chiamata che rischiare dati non aggiornati da uno scrape
+    # rilanciato durante la stessa sessione.
     return pd.read_csv(PROCESSED_PATH)
 
 
@@ -67,9 +64,8 @@ def get_archetype_stats(deck_class: str, formato: str, justification: str) -> st
     winrate_mediano = subset["winrate"].median()
     partite_totali = int(subset["games"].sum())
     formato_desc = formato_norm or "Standard+Wild"
-    # Stesso principio di trasparenza gia' usato altrove nel progetto (es. i warning
-    # su fonti non datate in research.py): un campione piccolo non va presentato con
-    # la stessa sicurezza di uno ampio, anche se il numero e' comunque reale.
+    # Stesso principio di trasparenza usato altrove (es. research.py): un campione
+    # piccolo non va presentato con la stessa sicurezza di uno ampio.
     campione_note = (
         f" ATTENZIONE: campione molto piccolo (solo {n_mazzi} mazzi), il numero e' "
         "reale ma poco rappresentativo - non presentarlo nel post come un dato "

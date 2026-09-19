@@ -40,17 +40,14 @@ def update_kg(state: AgentState) -> AgentState:
     classe = detect_deck_class(topic_text)
     formato = detect_format(topic_text)
 
-    # Solo le fonti ancora riconosciute (non quelle finite in fonti_non_riconosciute,
-    # vedi src/agent/format_draft.py) - non si scrive sul KG una fonte che potrebbe
-    # essere stata riformulata o inventata dall'LLM in fase di drafting.
+    # Solo le fonti ancora riconosciute (vedi format_draft.py) - non si scrive una
+    # fonte che potrebbe essere stata riformulata o inventata in fase di drafting.
     fonti_non_riconosciute = set(draft.get("fonti_non_riconosciute", []))
     fonti_valide = [f for f in draft.get("fonti_citate", []) if f not in fonti_non_riconosciute]
     sources = [{"ref": f, "tier": classify_source_tier(f)} for f in fonti_valide]
 
-    # Claim chiave: solo quelli che hanno gia' superato tutte le verifiche di
-    # Research/Format (stesso filtro predicato di src/agent/format_draft.py) E la cui
-    # fonte e' ancora tra quelle valide sopra - un claim con una fonte scartata non va
-    # scritto come se fosse ancora supportato nel post pubblicato.
+    # Solo claim gia' verificati (stesso filtro di format_draft.py) con fonte ancora
+    # tra quelle valide sopra.
     research_summary = state.get("research_summary") or {}
     fonti_valide_set = set(fonti_valide)
     claims = [

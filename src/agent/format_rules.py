@@ -23,10 +23,8 @@ STANDARD_LEGAL_SETS_MANUAL = {
     "TIME_TRAVEL",                  # Novembre 2025, "Across the Timeways" - anno rotazionale "Raptor"
 }
 
-# Il Basic Set (e la sua variante "nascosta" CORE_HIDDEN) e' legale in Standard per
-# definizione permanente del gioco - lo forziamo comunque nell'insieme anche se
-# l'endpoint non lo elencasse esplicitamente, per non rischiare falsi positivi
-# assurdi (una carta base segnalata come "non Standard").
+# Basic Set (e CORE_HIDDEN) legale in Standard per definizione permanente - forzato
+# comunque nell'insieme anche se l'endpoint non lo elencasse esplicitamente.
 ALWAYS_STANDARD_LEGAL = {"CORE", "CORE_HIDDEN"}
 
 
@@ -114,9 +112,9 @@ def mentions_battlegrounds_only(text: str) -> bool:
 
 
 
-# Rete di sicurezza in codice: nella community italiana di Hearthstone "il meta" e'
-# maschile ("la meta" in italiano standard significa "traguardo") - il modello lo
-# scrive comunque al femminile in alcuni run nonostante la regola nel prompt.
+# Nella community italiana di Hearthstone "il meta" e' maschile ("la meta" in
+# italiano standard significa "traguardo") - rete di sicurezza per quando il
+# modello lo scrive al femminile nonostante la regola nel prompt.
 _META_GENDER_FIXES = [
     (r"\bdella\b(?=\s+meta\b)", "del"),
     (r"\bnella\b(?=\s+meta\b)", "nel"),

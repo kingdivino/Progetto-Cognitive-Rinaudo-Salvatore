@@ -24,16 +24,9 @@ def human_review(state: AgentState) -> AgentState:
         )
         return {**state, "reasoning_trace": reasoning_trace, "review_decision": "regenerate"}
 
-    # Warning ad alta priorita' gia' calcolati da Research/Format, ripresentati qui
-    # cosi' chi revisiona sa gia' dove guardare senza rileggere tutto il trace.
-    # I warning di Research restano validi per qualunque bozza dello stesso post
-    # (i claim non cambiano finche' Research non viene rieseguito) ma vanno limitati
-    # al post CORRENTE, dato che il grafo elabora un piano intero in sequenza e
-    # reasoning_trace accumula anche i warning di post precedenti gia' conclusi.
-    # I warning di Format vanno invece limitati al SOLO tentativo di drafting piu'
-    # recente: in un "rigenera" ripetuto, mostrare anche i warning di bozze gia'
-    # scartate farebbe credere che un problema risolto valga ancora per la bozza
-    # attuale.
+    # Warning gia' calcolati da Research/Format, ripresentati qui limitati al post
+    # corrente (Research) e al solo ultimo tentativo di drafting (Format), cosi'
+    # un "rigenera" ripetuto non ripropone warning di bozze gia' scartate.
     try:
         _ultimo_research_idx = max(
             i for i, line in enumerate(reasoning_trace) if "[Research] Avvio ricerca per il post" in line
@@ -109,13 +102,8 @@ def human_review(state: AgentState) -> AgentState:
         return {**state, "reasoning_trace": reasoning_trace, "review_decision": "regenerate"}
 
     if azione == "scarta":
-        # Diverso da "rigenera": qui non e' la BOZZA il problema, e' il TOPIC stesso
-        # che l'utente ha deciso di non voler pubblicare - rigenerare all'infinito non
-        # lo risolverebbe. Non e' uno dei tre esiti nominati dalla specifica
-        # (approvazione/modifica/rigenerazione), ma non la contraddice: resta vero che
-        # "il KG si aggiorna SOLO dopo approvazione" (qui nessuna scrittura, come
-        # "rigenera"). Il routing (graph.py) fa la differenza: "rigenera" torna a
-        # Format per lo STESSO post, "discarded" avanza al post successivo del piano.
+        # Diverso da "rigenera": qui e' il TOPIC che l'utente non vuole pubblicare, non
+        # solo la bozza - il routing (graph.py) avanza al post successivo del piano.
         reasoning_trace.append(
             "[HumanReview] Post scartato dall'utente (non solo la bozza) - nessuna "
             "scrittura sul KG per questo post, si passa al prossimo del piano pianificato "
@@ -123,11 +111,8 @@ def human_review(state: AgentState) -> AgentState:
         )
         return {**state, "reasoning_trace": reasoning_trace, "review_decision": "discarded"}
 
-    # Risposta non riconosciuta (formato inatteso dal client che ha fatto il resume) -
-    # stesso principio anti-assunzione gia' visto altrove in questo progetto: non si
-    # assume un'azione di default rischiosa (es. approvare per errore, che scriverebbe
-    # sul KG senza una vera approvazione) - si tratta come "da rigenerare" e si logga
-    # con chiarezza, cosi' l'anomalia e' visibile nel reasoning_trace.
+    # Risposta non riconosciuta: mai un default rischioso (es. approvare per errore) -
+    # trattata come rigenerazione e loggata.
     reasoning_trace.append(
         f"[HumanReview] [WARNING] Risposta di resume non riconosciuta ({decision!r}) - "
         "trattata come rigenerazione per sicurezza (nessuna scrittura sul KG senza "

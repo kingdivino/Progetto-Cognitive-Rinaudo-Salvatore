@@ -11,9 +11,8 @@ RUN_NAME = os.environ.get("LORA_RUN_NAME", "run")
 RUN_DIR = os.path.join("data", "processed", "finetune_powerlevel", RUN_NAME)
 LABELS = ("basso", "medio", "alto")
 
-# Stesso identico prompt di notebooks/13_finetune_train.py e 14_finetune_evaluate.py -
-# DEVE restare identico a quello usato in training, altrimenti il modello vedrebbe in
-# inferenza una distribuzione di input diversa da quella su cui e' stato addestrato.
+# Stesso identico prompt di notebooks/13_finetune_train.py - deve restare identico
+# a quello usato in training.
 _PROMPT = """Sei un esperto di Hearthstone (gioco di carte Blizzard). Classifica il \
 potenziale competitivo ("power level") del mazzo descritto sotto in una di queste tre \
 categorie: basso, medio, alto.
@@ -22,8 +21,8 @@ categorie: basso, medio, alto.
 
 Rispondi con UNA SOLA PAROLA tra: basso, medio, alto. Nessun'altra spiegazione."""
 
-# Lazy singleton (come l'indice RAG in src/tools/rag_tool.py e il driver Neo4j in
-# src/kg/connection.py): il modello si carica una sola volta, non ad ogni chiamata.
+# Lazy singleton (come l'indice RAG e il driver Neo4j): il modello si carica una
+# sola volta.
 _model = None
 _tokenizer = None
 _device = None
@@ -47,10 +46,8 @@ def _load_model():
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     _tokenizer = AutoTokenizer.from_pretrained(RUN_DIR)
-    # Forziamo sempre la CPU (a differenza del training, che usa la GPU): questo tool
-    # gira DENTRO il ciclo ReAct mentre Ollama potrebbe gia' usare la GPU (solo 4GB
-    # VRAM) - condividerla rischierebbe un CUDA OOM a runtime. Costo accettabile: il
-    # modello e' piccolo (1.5B), pochi secondi in piu' su CPU per singola inferenza.
+    # Forziamo la CPU: questo tool gira mentre Ollama potrebbe gia' usare la GPU
+    # (solo 4GB VRAM) - condividerla rischierebbe un CUDA OOM.
     base_model = AutoModelForCausalLM.from_pretrained(BASE_MODEL, dtype=torch.float32)
     _model = PeftModel.from_pretrained(base_model, RUN_DIR)
     _device = "cpu"

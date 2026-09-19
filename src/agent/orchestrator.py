@@ -25,9 +25,8 @@ def select_next_post(state: AgentState) -> AgentState:
     # altrimenti quel post e' concluso, si passa al successivo.
     idx = 0 if _raw_index is None else _raw_index + 1
 
-    # MAX_POSTS_TO_PROCESS: stessa gestione difensiva di RESEARCH_POST_INDEX in
-    # research.py (None = non impostata affatto, stringa vuota o non numerica =
-    # ignorata con un avviso, mai un crash del nodo).
+    # Stessa gestione difensiva di RESEARCH_POST_INDEX in research.py: mai un crash
+    # del nodo per un valore mancante/non numerico.
     _raw_max = os.environ.get("MAX_POSTS_TO_PROCESS")
     max_posts: int | None = None
     if _raw_max is not None and _raw_max.strip():
@@ -39,13 +38,10 @@ def select_next_post(state: AgentState) -> AgentState:
                 "valido - ignorato, nessun limite applicato."
             )
 
-    # Rete di sicurezza parallela al fix in domain_data.py (che copre solo i topic
-    # legati a un archetipo dei dati di scraping, non quelli tipo evento/review/news
-    # inventati liberamente dal Planner). Controllo meccanico (stringa esatta
-    # normalizzata, nessun giudizio semantico): se il topic del prossimo post e'
-    # IDENTICO a uno gia' nel KG o a un post precedente di QUESTO piano, lo si salta
-    # senza avviare Research/Format - inutile spendere minuti di LLM su un contenuto
-    # che verrebbe comunque scartato in revisione.
+    # Rete di sicurezza parallela al fix in domain_data.py (che copre solo i topic da
+    # archetipo, non quelli inventati liberamente dal Planner): salta un topic
+    # IDENTICO (stringa normalizzata) a uno gia' nel KG o in questo piano, senza
+    # sprecare Research/Format su un contenuto che verrebbe comunque scartato.
     _covered_norm = {
         (t or "").strip().lower()
         for t in (state.get("planning_info", {}).get("covered_topics") or [])

@@ -16,16 +16,13 @@ from src.agent.llm_config import build_llm
 from src.agent.state import AgentState
 from src.kg import connection as kg
 
-DEFAULT_N_POSTS = 6  # >2 di proposito: le "lezioni apprese da GymAssistant" nella
-# guida di progetto segnalano un planning troppo corto (solo 2 post) come uno dei
-# probabili motivi del voto non massimo del progetto di riferimento.
+DEFAULT_N_POSTS = 6  # >2 di proposito: un planning corto e' segnalato come rischio
+# nella guida di progetto (lezioni da GymAssistant).
 
 
 class PlannedPost(BaseModel):
-    # Literal invece di str: constraint imposto dallo schema (Ollama/Pydantic
-    # rifiutano/ricampionano un valore fuori da questi 4), non delegato interamente
-    # all'LLM che seguendo solo l'istruzione testuale ha talvolta prodotto "event"
-    # invece di "evento" (osservato nel run del 01/09/2026 con qwen3:14b).
+    # Literal invece di str: constraint imposto dallo schema, non delegato
+    # interamente all'LLM (che a parole ha talvolta prodotto "event" invece di "evento").
     tipo: Literal["evento", "how-to", "review", "news"] = Field(
         description="uno tra: evento, how-to, review, news (esattamente queste 4 stringhe)"
     )
@@ -167,11 +164,9 @@ def plan_posts(state: AgentState) -> AgentState:
             "- si procede assumendo nessuno storico. Verificare che Neo4j Desktop sia avviato."
         )
 
-    # covered_topics passato qui (17/09/2026): esclude a monte, in codice, gli
-    # archetipi il cui nome e' gia' comparso in un topic pubblicato - vedi il
-    # commento in load_archetype_signals per il caso reale che ha motivato il fix
-    # (il solo elenco testuale nel prompt sotto non e' bastato a impedire una
-    # ripetizione parola per parola).
+    # covered_topics esclude a monte gli archetipi gia' comparsi in un topic
+    # pubblicato (vedi load_archetype_signals) - l'elenco testuale nel prompt da solo
+    # non e' bastato a impedire una ripetizione parola per parola.
     archetype_signals = load_archetype_signals(top_n=8, covered_topics=covered_topics)
     if archetype_signals:
         reasoning_trace.append(
@@ -186,8 +181,7 @@ def plan_posts(state: AgentState) -> AgentState:
 
     n_posts = state.get("planning_info", {}).get("n_posts", DEFAULT_N_POSTS)
 
-    # Costruzione del LLM centralizzata in src/agent/llm_config.py (letta da li' anche
-    # OLLAMA_NUM_GPU/OLLAMA_REASONING - vedi commenti li' per il significato di ognuna).
+    # Costruzione centralizzata in src/agent/llm_config.py.
     llm = build_llm(temperature=0.4)
     structured_llm = llm.with_structured_output(PostPlan)
 
@@ -212,12 +206,9 @@ def plan_posts(state: AgentState) -> AgentState:
         llm_elapsed = time.perf_counter() - llm_start
         post_plan = [p.model_dump() for p in plan.posts]
 
-        # Rete di sicurezza in codice: la regola del prompt non basta da sola (topic
-        # ripetuti PAROLA PER PAROLA osservati nonostante la lista nel messaggio). Si
-        # rimuovono qui, in fase di pianificazione (non solo a valle in orchestrator.py,
-        # che salta il post ma non evita la ridondanza a monte), i post il cui topic e'
-        # IDENTICO a uno gia' nel KG o nel piano - il piano finale puo' risultare piu'
-        # corto di n_posts, gia' gestito da chi lo consuma.
+        # La regola nel prompt non basta da sola: si rimuovono qui i post il cui topic
+        # e' identico a uno gia' nel KG o nel piano (non solo a valle in
+        # orchestrator.py) - il piano puo' risultare piu' corto di n_posts.
         _covered_norm_planner = {(t or "").strip().lower() for t in covered_topics}
         _post_plan_dedup = []
         _seen_topic_norm: set[str] = set()
@@ -246,9 +237,8 @@ def plan_posts(state: AgentState) -> AgentState:
                 "(evitare ridondanza tenendo conto del KG)."
             )
 
-        # Rete di sicurezza in codice per il genere di "il meta"/"la meta" (vedi
-        # fix_meta_gender in format_rules.py) - corretto anche qui, non solo in Format,
-        # perche' il topic pianificato qui e' spesso ripreso come titolo del post finale.
+        # Corretto anche qui (non solo in Format) perche' il topic pianificato e'
+        # spesso ripreso come titolo del post finale.
         _n_fix_totale = 0
         for post in post_plan:
             post["topic"], _n = fix_meta_gender(post.get("topic", ""))
@@ -267,8 +257,8 @@ def plan_posts(state: AgentState) -> AgentState:
         )
     except Exception as e:
         llm_elapsed = time.perf_counter() - llm_start
-        # Un modello locale (llama3.1:8b) puo' occasionalmente non rispettare lo schema
-        # strutturato richiesto - non deve far crashare il grafo, va segnalato.
+        # Un modello locale puo' occasionalmente non rispettare lo schema strutturato -
+        # non deve far crashare il grafo.
         reasoning_trace.append(
             f"[Planner] [ERROR] Fallita generazione del piano dopo {llm_elapsed:.1f}s: {e}"
         )

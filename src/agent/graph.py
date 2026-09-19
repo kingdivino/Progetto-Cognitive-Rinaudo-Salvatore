@@ -45,9 +45,7 @@ def build_graph(checkpointer=None):
     graph.add_edge("research", "format")
     graph.add_edge("format", "human_review")
     graph.add_conditional_edges("human_review", _route_after_review, {"format": "format", "kg_update": "kg_update"})
-    # kg_update chiude sempre il post corrente (che sia stato scritto sul KG o
-    # saltato) tornando a select_next_post per decidere se c'e' un post successivo
-    # nel piano o se il grafo deve terminare - MAI un edge fisso verso END da qui,
-    # altrimenti il ciclo si fermerebbe sempre dopo il primo post.
+    # kg_update torna sempre a select_next_post (mai un edge fisso verso END),
+    # altrimenti il ciclo si fermerebbe dopo il primo post.
     graph.add_edge("kg_update", "select_next_post")
     return graph.compile(checkpointer=checkpointer)

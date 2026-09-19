@@ -21,31 +21,19 @@ from src.tools.rag_tool import get_card_info_by_name, search_card_knowledge
 from src.tools.search_tool import SOURCE_TIER_DOMAINS, search_web
 from src.tools.stats_tool import get_archetype_stats
 
-MAX_TOOL_ITERATIONS = 6  # tetto di sicurezza - il prompt istruisce l'LLM a fermarsi
-# da solo quando ha materiale sufficiente, ma un limite esplicito evita cicli
-# infiniti se il modello continuasse a richiedere tool senza necessita'.
+MAX_TOOL_ITERATIONS = 6  # tetto di sicurezza contro cicli infiniti del modello
 
-# assess_deck_power_level: tool basato sul modello fine-tuned (power_level_tool.py) -
-# requisito di specifica ("almeno un tool aggiuntivo basato sul modello fine-tuned").
-# Produce una VALUTAZIONE del modello (un'inferenza, non un fatto verificabile con
-# una fonte terza), tracciata con la fonte dedicata "MODELLO-FINETUNED" (vedi
-# SourcedClaim.source sotto) per non confonderla con URL/RAG/KG.
-# get_archetype_stats: secondo dei "2 tool aggiuntivi" richiesti - non fine-tuned,
-# interroga direttamente i dati reali HSReplay (stats_tool.py) per un winrate/
-# popolarita' VERO invece di farlo stimare al modello o cercare sul web. Fonte
-# dedicata "DATI-HSREPLAY", stesso principio di tracciamento di MODELLO-FINETUNED.
+# I due tool aggiuntivi richiesti dalla specifica: assess_deck_power_level (fine-
+# tuned, fonte "MODELLO-FINETUNED") e get_archetype_stats (dati reali HSReplay,
+# fonte "DATI-HSREPLAY").
 TOOLS = [
     query_knowledge_graph, search_card_knowledge, search_web,
     assess_deck_power_level, get_archetype_stats,
 ]
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
 
-# query_knowledge_graph e' escluso dal ciclo ReAct vero e proprio (resta disponibile
-# solo per la chiamata forzata via codice, invocata direttamente sotto): osservato un
-# run che lo richiamava di nuovo nonostante il prompt lo vietasse esplicitamente,
-# sprecando tutte le iterazioni senza fare ricerca reale. Un controllo in codice (non
-# offrire la scelta) batte un'istruzione ripetuta nel prompt quando il modello non la
-# rispetta in modo affidabile - stesso principio usato altrove in questo file.
+# query_knowledge_graph escluso dal ciclo ReAct (chiamato a parte, in codice): il
+# modello lo ririchiamava nonostante il prompt lo vietasse, sprecando iterazioni.
 REACT_TOOLS = [
     search_card_knowledge, search_web,
     assess_deck_power_level, get_archetype_stats,
@@ -77,11 +65,8 @@ class ResearchSummary(BaseModel):
     )
 
 
-# Livelli di affidabilita' delle fonti web (solo URL - RAG/KG sono sempre affidabili
-# in quanto dati strutturati locali). Distingue una fonte aggregata/ufficiale da
-# un'opinione di un singolo creator. Dizionario dei domini importato da
-# src/tools/search_tool.py (usato anche da search_web) per non tenere due copie
-# disallineabili - vedi quel file per il significato di ogni livello.
+# Domini importati da search_tool.py (usato anche da search_web) per non tenere due
+# copie disallineabili.
 def classify_source_tier(source: str) -> str:
     """Classifica una fonte (valore del campo 'source' di SourcedClaim) in un
     livello di affidabilita' meccanico, solo per fonti URL - vedi commento sopra.
@@ -98,35 +83,23 @@ def classify_source_tier(source: str) -> str:
     return "sconosciuta"
 
 
-# Verifica che la fonte dichiarata di un claim corrisponda DAVVERO a un'osservazione
-# ottenuta in QUESTA ricerca - non solo che sia scritta nel formato giusto (quello lo
-# fa gia' source_well_formed sopra, ma controlla solo la STRINGA, non i fatti). Caso
-# reale che ha motivato il fix: un run senza nessuna chiamata a tool ha comunque
-# prodotto claim con fonte "search_card_knowledge" mai invocato - un modello che
-# scriva "RAG: <nome carta mai cercata>" passerebbe indenne da source_well_formed
-# (che controlla solo il formato) e sembrerebbe una fonte valida.
-#
-# Il controllo e' meccanico: per KG basta che query_knowledge_graph compaia in
-# tools_used; per RAG/URL il tool giusto deve essere stato usato E il contenuto
-# citato deve comparire per davvero in un'osservazione registrata in tool_outputs.
+# Verifica che la fonte dichiarata corrisponda DAVVERO a un'osservazione di un tool
+# in questa ricerca (non solo che sia scritta nel formato giusto, gia' controllato
+# da source_well_formed) - vedi addendum di progetto per il caso reale che lo ha
+# motivato.
 def _source_is_grounded(
     source: str, tools_used: list[str], tool_outputs: list[dict], claim_text: str = ""
 ) -> bool:
     src = (source or "").strip()
 
-    # Controllo UNIVERSALE, prima della verifica specifica della fonte: qualunque
-    # percentuale citata in un claim (di QUALUNQUE fonte, non solo DATI-HSREPLAY/KG)
-    # deve comparire in almeno un'osservazione reale di un tool in questa ricerca,
-    # altrimenti il claim e' respinto (prima di questo fix un claim RAG/URL/
-    # MODELLO-FINETUNED poteva contenere una cifra inventata senza verifica).
+    # Controllo universale sulle percentuali, per QUALUNQUE fonte: deve comparire in
+    # un'osservazione reale di un tool, altrimenti il claim e' respinto.
     _pct_re = re.compile(r"\d+(?:[.,]\d+)?%")
     _claim_pcts = {m.replace(",", ".") for m in _pct_re.findall(claim_text or "")}
     if _claim_pcts:
-        # ROOT CAUSE (vedi addendum di progetto): ogni tool ripete alla lettera il
-        # testo di 'justification' (scelto liberamente dal modello) dentro la propria
-        # 'observation'. Va rimosso PRIMA di cercare percentuali "vere", altrimenti un
-        # numero fabbricato nella justification (che spesso ripete proprio la cifra
-        # che il modello sta cercando di "confermare") passerebbe per dato reale.
+        # ROOT CAUSE (vedi addendum di progetto): va rimossa la justification (testo
+        # del modello) dall'osservazione prima di cercare percentuali "vere", altrimenti
+        # un numero fabbricato nella justification passerebbe per dato reale.
         _real_pcts_global: set = set()
         for o in tool_outputs:
             _obs_text = str(o.get("observation", ""))
@@ -138,10 +111,6 @@ def _source_is_grounded(
             return False
 
     if src == "KG":
-        # L'osservazione REALE di query_knowledge_graph (vedi kg_tool.py) contiene
-        # solo nomi di topic e metadati editoriali, mai percentuali - quindi un
-        # claim 'KG' con una percentuale viene gia' respinto dal controllo
-        # universale sopra prima ancora di arrivare qui, in ogni caso pratico.
         return "query_knowledge_graph" in tools_used
     if src == "MODELLO-FINETUNED":
         return "assess_deck_power_level" in tools_used
@@ -153,14 +122,8 @@ def _source_is_grounded(
         card_name = src[len("RAG:"):].strip().lower()
         if not card_name:
             return False
-        # Un substring-match contro l'INTERA osservazione (incluso l'header "Risultati
-        # RAG per '<query>' (...)" che rag_tool.py antepone) farebbe risultare
-        # "grounded" per costruzione un claim con source 'RAG: <query esatta>' - la
-        # query stessa scritta come se fosse un nome di carta - anche quando nessuna
-        # carta con quel nome compare davvero tra i risultati. Si estraggono quindi
-        # SOLO i nomi di carta DAVVERO elencati come risultato (stesso pattern regex
-        # usato nelle riparazioni automatiche sopra) e si richiede una corrispondenza
-        # con uno di questi, non con l'osservazione intera.
+        # Solo i nomi di carta DAVVERO elencati come risultato (non un match contro
+        # l'osservazione intera, che accetterebbe anche la query stessa come nome).
         _card_name_re_grounding = re.compile(r"\[([^—\]]+)\s—\sid:")
         for o in tool_outputs:
             if o.get("tool") != "search_card_knowledge":
@@ -305,15 +268,8 @@ def research_topic(state: AgentState) -> AgentState:
     kg_summary = dict(state.get("kg_summary", {}))
 
     post_plan = state.get("post_plan", [])
-    # RESEARCH_POST_INDEX: rimasto solo come fallback per invocare questo nodo in
-    # isolamento (es. un test diretto di un singolo post) - il percorso normale passa
-    # da select_next_post (orchestrator.py) che imposta gia' 'current_post', usato
-    # direttamente sotto senza guardare questa variabile. Il try/except protegge da
-    # un valore non numerico (es. errore di battitura nel .env) senza far crashare il
-    # nodo. os.environ.get(...) torna None se la variabile non e' mai arrivata al
-    # processo (causa tipica su Windows: "set VAR=..." e' sintassi cmd.exe, non fa
-    # nulla in PowerShell - serve "$env:VAR=..."), tenuto distinto da "impostata a 0"
-    # cosi' il reasoning_trace dice se l'override e' stato visto o no.
+    # RESEARCH_POST_INDEX: fallback per invocare questo nodo in isolamento, quando
+    # 'current_post' non arriva gia' da select_next_post (percorso normale).
     _raw_post_index = os.environ.get("RESEARCH_POST_INDEX")
     if _raw_post_index is None:
         _post_index = 0
@@ -341,13 +297,8 @@ def research_topic(state: AgentState) -> AgentState:
             "research_summary": {"claims": [], "tools_used": []},
         }
 
-    # Bug corretto: il messaggio riportava sempre l'indice di RESEARCH_POST_INDEX per
-    # il "post N/M" anche quando 'current_post' arrivava da select_next_post (percorso
-    # normale) - il post ricercato era corretto, ma il numero nel trace restava
-    # fisso alla variabile d'ambiente, ingannevole nel trace/LangSmith. Quando
-    # 'current_post' arriva dallo stato si riporta l'indice REALE da
-    # 'current_post_index' (impostato da select_next_post), non quello della
-    # variabile d'ambiente, che a quel punto non ha influenzato nulla.
+    # Quando 'current_post' arriva dallo stato si riporta l'indice reale da
+    # 'current_post_index', non quello (fuorviante) della variabile d'ambiente.
     if _current_post_from_state is not None:
         _display_index = state.get("current_post_index")
         _display_index = 0 if _display_index is None else _display_index
@@ -367,11 +318,9 @@ def research_topic(state: AgentState) -> AgentState:
     llm = build_llm(temperature=0.3)
     llm_with_tools = llm.bind_tools(REACT_TOOLS)
 
-    # Nessun campo strutturato collega il post al mazzo specifico che lo ha ispirato
-    # (solo testo libero) - euristica sul testo per capire Standard/Wild, e in caso di
-    # Standard si fornisce esplicitamente l'elenco aggiornato delle espansioni legali
-    # (format_rules.py), perche' cambia con le rotazioni e la conoscenza pregressa del
-    # modello sarebbe ferma al training e quasi certamente stale.
+    # Euristica sul testo (nessun campo strutturato collega il post al mazzo): in
+    # caso di Standard si fornisce l'elenco aggiornato delle espansioni legali, che
+    # cambia con le rotazioni e la conoscenza del modello sarebbe stale.
     detected_format = format_rules.detect_format(
         f"{current_post.get('topic', '')} {current_post.get('justification', '')}"
     )
@@ -399,11 +348,8 @@ def research_topic(state: AgentState) -> AgentState:
             "una carta sia Standard-legal solo perche' e' rilevante per questo post."
         )
 
-    # Stessa euristica e stesso limite del formato sopra (nessun campo strutturato
-    # collega il post alla classe del mazzo). Osservato un claim che proponeva una
-    # carta Warlock per un mazzo Priest - qui il gap non era "il modello non ha il
-    # dato giusto" (le classi non cambiano nel tempo) ma "nessuno gli chiede mai di
-    # controllarlo".
+    # Stessa euristica per la classe del mazzo (osservato un claim che proponeva una
+    # carta Warlock per un mazzo Priest).
     detected_class = format_rules.detect_deck_class(
         f"{current_post.get('topic', '')} {current_post.get('justification', '')}"
     )
@@ -422,11 +368,8 @@ def research_topic(state: AgentState) -> AgentState:
         + f"; classe rilevata: {detected_class or 'non riconosciuta'}"
     )
 
-    # Data reale di oggi, iniettata qui (non nel system prompt statico, che non puo'
-    # saperla): senza ancoraggio alla data corrente il modello ha generato una query
-    # search_web con un anno vecchio (la sua stima interna da training di "adesso") e
-    # presentato quel risultato come notizia recente - serve dirgli esplicitamente
-    # che giorno e' davvero.
+    # Data reale iniettata qui (il system prompt statico non puo' saperla): senza,
+    # il modello ha generato query con un anno vecchio (stima da training).
     _oggi = datetime.date.today().strftime("%d/%m/%Y")
 
     messages = [
@@ -448,35 +391,18 @@ def research_topic(state: AgentState) -> AgentState:
     ]
 
     tools_used: list[str] = []
-    # Dedup delle chiamate a tool identiche entro questa ricerca: osservate fino a 5
-    # chiamate CONSECUTIVE a search_web con query IDENTICA, che consumavano quasi
-    # tutte le iterazioni disponibili senza aggiungere informazione nuova. La
-    # justification e' esclusa dalla chiave di confronto (puo' variare in
-    # formulazione restando la stessa richiesta) - contano solo tool e argomenti.
+    # Dedup delle chiamate a tool identiche (justification esclusa dal confronto,
+    # contano solo tool e argomenti) - vedi addendum di progetto per il caso reale.
     _seen_tool_calls: set[tuple] = set()
 
-    # Segnalare solo a parole una chiamata duplicata non basta a far smettere il
-    # modello di ripeterla (osservato piu' volte, anche 5 iterazioni consecutive
-    # identiche) - serve un vincolo strutturale. _banned_tools esclude un tool dalla
-    # scelta per il resto di QUESTA ricerca, ma solo dopo la SECONDA ripetizione
-    # della stessa esatta combinazione (tool, argomenti): un singolo duplicato puo'
-    # essere una svista isolata, non merita di bruciare l'intero tool; due sono un
-    # ciclo vero. Non blocca mai chiamate allo stesso tool con argomenti diversi
-    # (es. due carte diverse), che non contano mai come duplicato.
+    # Ban a due colpi: un tool viene escluso solo dopo la SECONDA ripetizione della
+    # stessa esatta combinazione (tool, argomenti) - mai per argomenti diversi.
     _banned_tools: set[str] = set()
     _duplicate_hits: dict[tuple, int] = {}
 
-    # Passo fisso e obbligatorio del workflow, chiamato direttamente in codice invece
-    # di essere lasciato alla scelta dell'LLM: il prompt chiede gia' di interrogare
-    # SEMPRE il KG per primo, sempre la stessa identica azione, zero giudizio
-    # richiesto. Osservato un run in cui il modello ha rifiutato di chiamare
-    # QUALUNQUE tool per tutte le iterazioni disponibili nonostante l'istruzione
-    # ripetuta, producendo comunque claim con fonte "search_card_knowledge" mai
-    # invocato - una fabbricazione piu' grave del "nessuna ricerca fatta", perche'
-    # finge un'osservazione mai avvenuta. Chiamare il tool direttamente elimina la
-    # classe di errore alla radice per questo primo passo, e garantisce che
-    # tools_used non sia mai vuoto quando inizia il ciclo LLM sotto (che resta
-    # comunque come rete di sicurezza per le iterazioni successive).
+    # KG interrogato direttamente in codice (non lasciato alla scelta dell'LLM):
+    # osservato un run che rifiutava di chiamare qualunque tool producendo comunque
+    # claim con fonte mai invocata - vedi addendum di progetto.
     forced_justification = (
         "Passo fisso del workflow (non richiede una decisione dell'LLM): controllare "
         "sempre il Knowledge Graph editoriale per primo, per evitare ripetizioni "
@@ -509,14 +435,9 @@ def research_topic(state: AgentState) -> AgentState:
     }]))
     messages.append(ToolMessage(content=str(kg_observation), tool_call_id=_forced_call_id))
 
-    # Promemoria anti-confusione tra topic/mazzi simili: osservato un caso in cui il
-    # modello ha abbandonato il topic assegnato a meta' ciclo per cercarne uno diverso
-    # ma strutturalmente simile a uno gia' "coperto nel KG" (stesso pattern di frase),
-    # sprecando la maggior parte delle iterazioni su un archetipo estraneo. Si ripete
-    # esplicitamente il topic assegnato ad OGNI iterazione (non solo qui all'inizio),
-    # perche' nel run osservato la confusione e' scattata quando il promemoria
-    # iniziale era ormai lontano nel contesto - resta un'istruzione testuale, quindi
-    # un'ipotesi sul comportamento del modello, non una garanzia.
+    # Promemoria anti-confusione con topic simili gia' coperti nel KG (osservato un
+    # caso reale, vedi addendum di progetto) - ripetuto ad ogni iterazione, non solo
+    # qui, perche' la confusione scattava a meta' ciclo.
     _topic_reminder = (
         "Promemoria: la lista 'Topic gia' coperti' qui sopra elenca ARGOMENTI DI ALTRI "
         "POST, gia' pubblicati - non hanno nulla a che fare con la tua ricerca attuale, "
@@ -532,10 +453,8 @@ def research_topic(state: AgentState) -> AgentState:
         _llm_call_start = time.perf_counter()
         if _banned_tools:
             _remaining_tools = [t for t in REACT_TOOLS if t.name not in _banned_tools]
-            # Se sono stati banditi tutti i tool disponibili (caso limite) si evita
-            # bind_tools([]) - alcuni backend si comportano in modo inatteso con una
-            # lista vuota - lasciando che il modello risponda senza strumenti: la
-            # ricerca si conclude qui, gestita dal ramo "nessun tool_call" sotto.
+            # Tutti i tool banditi (caso limite): si evita bind_tools([]) (alcuni
+            # backend si comportano in modo inatteso) lasciando rispondere senza tool.
             _active_llm_with_tools = llm.bind_tools(_remaining_tools) if _remaining_tools else llm
         else:
             _active_llm_with_tools = llm_with_tools
@@ -552,11 +471,8 @@ def research_topic(state: AgentState) -> AgentState:
 
         tool_calls = getattr(response, "tool_calls", None) or []
         if not tool_calls:
-            # Il KG e' ora sempre chiamato in automatico prima di questo ciclo, quindi
-            # tools_used non e' mai vuoto qui - il vincolo reale non e' piu' "almeno un
-            # tool" (gia' garantito) ma "almeno un tool OLTRE al KG", perche' il KG da
-            # solo non parla mai del contenuto specifico del post (carte, mazzi,
-            # meccaniche).
+            # Il KG e' gia' garantito (chiamata forzata sopra): il vincolo reale e'
+            # "almeno un tool OLTRE al KG", che da solo non parla del contenuto del post.
             non_kg_tools_used = [t for t in tools_used if t != "query_knowledge_graph"]
             if not non_kg_tools_used:
                 reasoning_trace.append(
@@ -597,12 +513,8 @@ def research_topic(state: AgentState) -> AgentState:
                 _duplicate_hits[_call_key] = _duplicate_hits.get(_call_key, 0) + 1
                 _hit_count = _duplicate_hits[_call_key]
                 if _hit_count >= 2:
-                    # Stessa combinazione (tool, argomenti) ritentata una SECONDA volta
-                    # come duplicato (terzo tentativo identico) - non e' piu' una svista
-                    # isolata, e' un ciclo. Si bandisce il tool intero (l'API di
-                    # tool-calling non permette di escludere una singola combinazione)
-                    # per liberare le iterazioni residue; non impedisce chiamate allo
-                    # stesso tool con argomenti DIVERSI, che non sono mai un duplicato.
+                    # Terzo tentativo identico: si bandisce il tool intero (l'API non
+                    # permette di escludere una singola combinazione argomenti).
                     _banned_tools.add(name)
                     observation = (
                         "[INFO] Chiamata gia' ripetuta identica per la seconda volta - non fornisce "
@@ -745,19 +657,14 @@ def research_topic(state: AgentState) -> AgentState:
         claims_dicts = []
         n_malformed = 0
         n_ungrounded = 0
-        # Diagnostica: il trace mostrava solo un CONTEGGIO di claim con fonte non nel
-        # formato atteso, mai la stringa vera scritta dal modello - senza vederla e'
-        # impossibile distinguere un problema risolvibile in codice (es. un prefisso
-        # extra normalizzabile) da un problema di compliance del prompt. Si raccolgono
-        # fino a 3 esempi REALI (non tutti, per non gonfiare il trace) da leggere
-        # prima di decidere come correggere.
+        # Diagnostica: si raccolgono fino a 3 esempi REALI di fonte malformata (non
+        # solo un conteggio) per poter distinguere un problema normalizzabile in
+        # codice da un problema di compliance del prompt.
         _esempi_fonte_malformata: list[str] = []
         for c in summary.claims:
             claim_dict = c.model_dump()
-            # Validazione strutturale (in codice, non delegata al prompt) del campo
-            # source: deve essere un URL, "RAG: <...>" o esattamente "KG" - un modello
-            # piu' piccolo non rispetta sempre l'istruzione testuale sul formato, quindi
-            # lo si intercetta e segnala invece di fidarsi ciecamente.
+            # Validazione strutturale del campo source (URL, "RAG: <...>" o "KG") -
+            # un modello piu' piccolo non rispetta sempre il formato richiesto nel prompt.
             src = (claim_dict.get("source") or "").strip()
             well_formed = (
                 src == "KG"
@@ -767,16 +674,9 @@ def research_topic(state: AgentState) -> AgentState:
                 or src == "DATI-HSREPLAY"
             )
 
-            # Riparazione automatica: per fonti search_web, il modello spesso non scrive
-            # SOLO l'URL nel campo source ma copia (parte del)la riga intera del
-            # risultato Tavily (formattata "{titolo} — {url}\n   {contenuto}" in
-            # search_tool.py) - l'URL vero e' quindi spesso presente dentro la stringa
-            # malformata, solo non all'inizio. Prima di scartare il claim per un
-            # problema di sola formattazione, si prova a estrarne l'URL con una regex
-            # e lo si accetta SOLO se compare per davvero in un'osservazione search_web
-            # di questa ricerca (stesso controllo di _source_is_grounded sotto). Se
-            # nessun URL e' riscontrabile, il claim resta malformato come prima -
-            # nessuna riparazione "ottimistica" che inventi una fonte.
+            # Riparazione automatica: il modello spesso copia l'intera riga del
+            # risultato Tavily invece del solo URL - si estrae l'URL con una regex e
+            # lo si accetta solo se compare in un'osservazione search_web reale.
             if not well_formed:
                 _url_match = re.search(r"https?://\S+", src)
                 if _url_match:
@@ -795,14 +695,9 @@ def research_topic(state: AgentState) -> AgentState:
                         claim_dict["source"] = src
                         well_formed = True
 
-            # Riparazione automatica, variante RAG: stesso principio di sopra ma per
-            # search_card_knowledge (es. 'search_card_knowledge - Lyra the Sunshard
-            # (id: UNG_963)' invece del prefisso richiesto 'RAG: Lyra the Sunshard').
-            # Il nome della carta e' quasi sempre presente per intero nella stringa
-            # malformata; si cerca tra i nomi DAVVERO restituiti da search_card_
-            # knowledge in questa ricerca (estratti dalle osservazioni reali, non
-            # dalla stringa del modello) quello che compare come sottostringa, e si usa
-            # il nome ESATTO dell'osservazione per normalizzare a "RAG: <nome>".
+            # Riparazione automatica, variante RAG: si cerca tra i nomi DAVVERO
+            # restituiti da search_card_knowledge quello che compare come sottostringa
+            # nella fonte scritta dal modello, e si usa il nome esatto dell'osservazione.
             if not well_formed:
                 _card_name_re = re.compile(r"\[([^—\]]+)\s—\sid:")
                 for o in tool_outputs:
@@ -824,13 +719,9 @@ def research_topic(state: AgentState) -> AgentState:
                             well_formed = True
                             break
 
-            # Riparazione automatica, terza variante RAG: caso in cui la query NON e'
-            # un nome di carta (es. "Neutral Standard") e il modello cita tool, query e
-            # posizione nella lista invece del nome (es. "search_card_knowledge -
-            # query: 'Neutral Standard', risultato 1"). Si rilegge l'osservazione REALE
-            # di questa ricerca per quella stessa query e si estrae il nome alla
-            # posizione indicata; se non trova corrispondenza, il claim resta
-            # malformato come prima.
+            # Riparazione automatica, terza variante RAG: query non un nome di carta
+            # (es. "Neutral Standard") - si rilegge l'osservazione reale per quella
+            # query e si estrae il nome alla posizione indicata dal modello.
             if not well_formed:
                 _ref_match = re.search(
                     r"query:\s*['\"]([^'\"]+)['\"]\s*,\s*risultato\s*(\d+)", src, re.IGNORECASE
@@ -863,14 +754,9 @@ def research_topic(state: AgentState) -> AgentState:
                             well_formed = True
                             break
 
-            # Riparazione automatica, quarta variante: il modello scrive il nome NUDO
-            # del tool come source (es. 'get_archetype_stats') invece del letterale
-            # richiesto. A differenza delle varianti RAG/web sopra, questi due tool
-            # hanno un letterale FISSO unico ('DATI-HSREPLAY'/'MODELLO-FINETUNED'),
-            # quindi il nome del tool e' gia' l'unica informazione che serve -
-            # riparabile SOLO se quel tool e' stato DAVVERO invocato in questa ricerca
-            # (tools_used); altrimenti e' una fabbricazione e il claim resta
-            # malformato.
+            # Riparazione automatica, quarta variante: il modello scrive il nome nudo
+            # del tool (es. 'get_archetype_stats') invece del letterale fisso richiesto
+            # - riparabile solo se quel tool e' stato davvero invocato (tools_used).
             if not well_formed:
                 _src_norm = src.strip().lower()
                 _fixed_literal_by_tool = {
@@ -897,16 +783,10 @@ def research_topic(state: AgentState) -> AgentState:
                 if len(_esempi_fonte_malformata) < 3:
                     _esempi_fonte_malformata.append(repr(src)[:80])
 
-            # Livello di affidabilita' della fonte (vedi classify_source_tier sopra
-            # per il perche') - calcolato per ogni claim con fonte ben formata,
-            # indipendentemente dal tool di origine (a differenza di format_valid/
-            # class_valid, che si applicano solo a fonti RAG).
             claim_dict["source_tier"] = classify_source_tier(src) if well_formed else "sconosciuta"
 
-            # Verifica di grounding (vedi _source_is_grounded sopra per il perche'
-            # e' un controllo distinto e piu' severo di source_well_formed): solo
-            # per fonti gia' ben formate ha senso controllare se sono anche vere -
-            # una fonte malformata e' gia' segnalata da source_well_formed.
+            # Grounding (vedi _source_is_grounded sopra): controllo distinto e piu'
+            # severo, solo per fonti gia' ben formate.
             claim_dict["source_grounded"] = (
                 _source_is_grounded(
                     src, tools_used, tool_outputs, claim_dict.get("claim", "")
@@ -916,10 +796,8 @@ def research_topic(state: AgentState) -> AgentState:
             if well_formed and not claim_dict["source_grounded"]:
                 n_ungrounded += 1
 
-            # Verifica strutturale di formato E classe, solo per claim con fonte RAG
-            # (solo li' sappiamo il nome esatto della carta). None = controllo non
-            # applicabile o non verificabile, non "valido" (mazzo/formato non
-            # riconosciuto, elenco Standard non disponibile, o carta non nell'indice).
+            # Verifica di formato/classe solo per claim RAG (solo li' sappiamo il nome
+            # esatto della carta). None = non applicabile/verificabile, non "valido".
             claim_dict["format_valid"] = None
             claim_dict["class_valid"] = None
             if well_formed and src.startswith("RAG:"):
@@ -932,12 +810,8 @@ def research_topic(state: AgentState) -> AgentState:
                         card_class = card_info.get("cardClass")
                         claim_dict["class_valid"] = card_class in (detected_class, "NEUTRAL")
 
-            # Controllo di modalita' di gioco (vedi BATTLEGROUNDS_ONLY_KEYWORDS in
-            # format_rules.py): a differenza di format_valid/class_valid si applica a
-            # OGNI claim, non solo a fonte RAG, perche' controlla il testo del claim
-            # stesso - questa pipeline pianifica solo mazzi costruiti, quindi un
-            # termine esclusivo di Battlegrounds e' fuori dominio a prescindere dal
-            # formato rilevato per il post.
+            # A differenza di format_valid/class_valid si applica a OGNI claim (vedi
+            # BATTLEGROUNDS_ONLY_KEYWORDS in format_rules.py).
             claim_dict["mode_valid"] = not format_rules.mentions_battlegrounds_only(
                 claim_dict.get("claim", "")
             )
@@ -997,17 +871,9 @@ def research_topic(state: AgentState) -> AgentState:
                 "prima di usarli nel post (campo 'mode_valid': False)."
             )
 
-        # Controllo "novita' presunta ma non confermata dalle date reali delle fonti":
-        # un topic puo' presupporre attualita' (es. "nuovi percorsi di missioni") ed
-        # essere ricercato con successo con fonti vere, ma quelle fonti possono
-        # descrivere una funzionalita' vecchia di molte patch - nessuna fabbricazione,
-        # ma il post finale la presenta comunque come novita' perche' nessuno confronta
-        # la data reale della fonte con la premessa di "novita'" gia' nel topic (la
-        # data di oggi nel prompt copre solo il caso in cui e' il MODELLO a scrivere
-        # "recentemente" di sua iniziativa). Controllo meccanico, nessun giudizio
-        # semantico: se topic/motivazione presuppongono attualita' e nessuna fonte
-        # search_web riporta una data "[pubblicato: ...]" recente (~6 mesi), un
-        # warning invita a un controllo umano prima di pubblicare, senza bloccare.
+        # Controllo "novita' presunta ma non confermata dalle date reali delle fonti"
+        # (vedi addendum di progetto per il razionale): warning non bloccante se il
+        # topic presuppone attualita' ma nessuna fonte search_web ha una data recente.
         _novelty_keywords = (
             "nuovo", "nuova", "nuovi", "nuove",
             "recente", "recenti", "ultimo", "ultima", "ultimi", "ultime",
