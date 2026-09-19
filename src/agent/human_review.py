@@ -54,24 +54,16 @@ def human_review(state: AgentState) -> AgentState:
         )
         return {**state, "reasoning_trace": reasoning_trace, "review_decision": "regenerate"}
 
-    # Warning ad alta priorita' gia' calcolati dai nodi precedenti (Research/Format) -
-    # ripresentati qui cosi' chi revisiona parte gia' sapendo dove guardare con piu'
-    # attenzione, invece di dover rileggere tutto il reasoning_trace da capo.
-    #
-    # I warning di Research restano validi per qualunque bozza DELLO STESSO post (i
-    # claim non cambiano finche' Research non viene rieseguito) - ma vanno limitati
-    # al post CORRENTE: dall'11/09/2026 il grafo elabora un piano intero di post in
-    # sequenza (src/agent/orchestrator.py), quindi reasoning_trace contiene ormai
-    # anche i warning di Research di post PRECEDENTI gia' conclusi (approvati o
-    # scartati) - senza questo limite, revisionando il post 3 si vedrebbero ancora i
-    # warning di Research del post 1, stesso tipo di bug gia' risolto sotto per i
-    # warning di Format tra un "rigenera" e l'altro dello stesso post.
-    # I warning di Format vanno invece limitati al SOLO tentativo di drafting PIU'
-    # RECENTE: in caso di "rigenera" (loop Format -> Human Review ripetuto),
-    # reasoning_trace accumula anche i warning di bozze gia' scartate nei tentativi
-    # precedenti - mostrarli tutti farebbe credere al revisore che un problema di un
-    # tentativo precedente valga ancora per la bozza attuale, quando magari il nuovo
-    # tentativo non lo ripete piu'.
+    # Warning ad alta priorita' gia' calcolati da Research/Format, ripresentati qui
+    # cosi' chi revisiona sa gia' dove guardare senza rileggere tutto il trace.
+    # I warning di Research restano validi per qualunque bozza dello stesso post
+    # (i claim non cambiano finche' Research non viene rieseguito) ma vanno limitati
+    # al post CORRENTE, dato che il grafo elabora un piano intero in sequenza e
+    # reasoning_trace accumula anche i warning di post precedenti gia' conclusi.
+    # I warning di Format vanno invece limitati al SOLO tentativo di drafting piu'
+    # recente: in un "rigenera" ripetuto, mostrare anche i warning di bozze gia'
+    # scartate farebbe credere che un problema risolto valga ancora per la bozza
+    # attuale.
     try:
         _ultimo_research_idx = max(
             i for i, line in enumerate(reasoning_trace) if "[Research] Avvio ricerca per il post" in line

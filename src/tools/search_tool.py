@@ -14,19 +14,14 @@ from __future__ import annotations
 
 from langchain_core.tools import tool
 
-# Livelli di affidabilita' delle fonti web (solo per fonti di tipo URL - RAG/KG sono
-# dati locali strutturati, questione diversa). Vivevano prima come copia privata in
-# src/agent/research.py (classify_source_tier) - spostati QUI e resi pubblici
-# (senza underscore) l'11/09/2026 perche' ora servono a DUE scopi, non solo uno:
-# classificare a posteriori una fonte gia' trovata (research.py, che li importa da
-# qui) E restringere A PRIORI cosa Tavily puo' restituire (search_web sotto, vedi
-# perche' sotto) - un'unica lista invece di due copie che rischierebbero di
-# disallinearsi (stesso principio "una sola fonte di verita'" gia' seguito altrove
-# nel progetto, es. il conteggio RELATED_TO thread-ato dal solo punto di scrittura).
+# Livelli di affidabilita' delle fonti web (solo URL - RAG/KG sono dati locali
+# strutturati, questione diversa). Pubblici (non in research.py) perche' servono a
+# due scopi: classificare a posteriori una fonte gia' trovata (research.py importa
+# da qui) e restringere a priori cosa Tavily puo' restituire (sotto) - un'unica
+# lista invece di due copie che rischierebbero di disallinearsi.
 #
-# Classificazione MECCANICA dal dominio dell'URL (nessun giudizio semantico
-# richiesto - per questo verificata in codice e non lasciata al prompt, stesso
-# principio di source_well_formed in research.py):
+# Classificazione MECCANICA dal dominio dell'URL (nessun giudizio semantico, per
+# questo verificata in codice e non lasciata al prompt):
 # - "aggregato": siti di statistiche/decklist aggregate su molti giocatori
 #   (hsreplay.net, hearthpwn.com, metastats.net, hearthstone.wiki.gg) - un dato su
 #   un campione ampio, non l'opinione di una persona sola.
@@ -44,28 +39,18 @@ SOURCE_TIER_DOMAINS = {
     ),
 }
 
-# Domini a cui restringere Tavily (richiesta esplicita dell'utente l'11/09/2026, dopo
-# un run in cui search_web ha restituito quasi solo video YouTube/post Reddit,
-# classificati "opinione_singola" - vedi guida di progetto): SOLO "aggregato" +
-# "ufficiale", MAI "opinione_singola" - e' esattamente questo secondo gruppo che si
-# vuole escludere. "codice invece di prompt", stesso principio del resto del
-# progetto: piu' affidabile chiedere a Tavily di NON restituire altri domini che
-# chiedere all'LLM di ignorarli una volta che li ha gia' visti nei risultati.
+# Domini a cui restringere Tavily: SOLO "aggregato" + "ufficiale", MAI
+# "opinione_singola" (dopo un run in cui search_web restituiva quasi solo video
+# YouTube/post Reddit) - piu' affidabile chiedere a Tavily di non restituire quei
+# domini che chiedere all'LLM di ignorarli una volta visti.
 #
-# ATTENZIONE - compromesso reale, non solo teorico: restringere aumenta la
-# probabilita' di "nessun risultato trovato" per query molto specifiche non coperte
-# da questi 6 domini (es. un torneo minore, un annuncio molto recente non ancora
-# indicizzato li'). Preferibile comunque a un risultato di bassa qualita' che il
-# modello potrebbe citare come se fosse autorevole - se in pratica capita spesso,
-# vale la pena ampliare questa lista (o farla configurabile) invece di rimuovere la
-# restrizione del tutto.
+# Compromesso reale: restringere aumenta la probabilita' di "nessun risultato" per
+# query molto specifiche non coperte da questi domini - preferibile comunque a un
+# risultato di bassa qualita' citato come autorevole; se capita spesso in pratica,
+# vale la pena ampliare la lista invece di rimuovere la restrizione.
 #
-# NOTA - non verificato dal vivo: il parametro include_domains di
-# langchain_tavily.TavilySearch non e' stato testato in questa sandbox (PyPI non e'
-# raggiungibile da qui - vedi guida di progetto) - risulta dalla documentazione
-# dell'API Tavily, che lo supporta da tempo. _run_tavily_search sotto e' comunque
-# protetto con un fallback (TypeError) nel caso la versione installata non lo
-# accetti, per non far crashare il nodo Research per questo.
+# _run_tavily_search sotto e' protetto con un fallback (TypeError) nel caso la
+# versione installata di langchain_tavily non supporti include_domains.
 TRUSTED_SEARCH_DOMAINS = SOURCE_TIER_DOMAINS["aggregato"] + SOURCE_TIER_DOMAINS["ufficiale"]
 
 
@@ -114,14 +99,10 @@ def search_web(query: str, justification: str) -> str:
         title = hit.get("title", "(senza titolo)")
         url = hit.get("url", "")
         content = (hit.get("content") or "")[:500]
-        # Tavily a volte include una data di pubblicazione per risultato (campo
-        # "published_date") - fino al 10/09/2026 veniva scartata qui, quindi il
-        # modello non aveva NESSUN modo strutturato di sapere quanto fosse vecchia una
-        # fonte (osservato: un articolo del 2023 presentato nel post come notizia
-        # "degli ultimi mesi", con l'anno riconoscibile solo per caso perche' compariva
-        # nell'URL). Non e' sempre presente (dipende dal sito indicizzato da Tavily) -
-        # la si aggiunge solo quando c'e', senza inventare un "data non disponibile"
-        # per ogni risultato che ne e' privo.
+        # Tavily include a volte una data di pubblicazione ("published_date"): senza
+        # esporla il modello non ha modo strutturato di sapere quanto sia vecchia una
+        # fonte (osservato: un articolo datato presentato come notizia recente). Non
+        # sempre presente - la si aggiunge solo quando c'e'.
         published = hit.get("published_date")
         date_note = f" [pubblicato: {published}]" if published else ""
         formatted.append(f"{i}. {title}{date_note} — {url}\n   {content}")

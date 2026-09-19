@@ -63,13 +63,10 @@ def _load_model():
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     _tokenizer = AutoTokenizer.from_pretrained(RUN_DIR)
-    # NB: qui (a differenza di notebooks/13_finetune_train.py, che usa la GPU per il
-    # training) forziamo sempre la CPU. Motivo: questo tool viene chiamato DENTRO il
-    # ciclo ReAct di Research, mentre Ollama (qwen3:8b, vedi .env) potrebbe gia' avere
-    # in uso la GPU dell'utente (solo 4GB di VRAM) - condividerla rischierebbe un CUDA
-    # OOM a runtime, nel mezzo di un run dell'agente. Costo accettabile: una singola
-    # inferenza (8 token generati) su un modello da 1.5B impiega pochi secondi in piu'
-    # su CPU, contro i minuti che il ciclo ReAct impiega comunque per ogni iterazione.
+    # Forziamo sempre la CPU (a differenza del training, che usa la GPU): questo tool
+    # gira DENTRO il ciclo ReAct mentre Ollama potrebbe gia' usare la GPU (solo 4GB
+    # VRAM) - condividerla rischierebbe un CUDA OOM a runtime. Costo accettabile: il
+    # modello e' piccolo (1.5B), pochi secondi in piu' su CPU per singola inferenza.
     base_model = AutoModelForCausalLM.from_pretrained(BASE_MODEL, dtype=torch.float32)
     _model = PeftModel.from_pretrained(base_model, RUN_DIR)
     _device = "cpu"

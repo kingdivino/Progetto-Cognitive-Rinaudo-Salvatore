@@ -171,28 +171,15 @@ def detect_format(text: str) -> str:
     return "standard"
 
 
-# Aggiunto il 16/09/2026 dopo un caso reale segnalato dall'utente: un post pianificato
-# come "Analisi del meta Wild dopo l'ultimo aggiornamento di bilanciamento" (quindi un
-# mazzo costruito, Standard/Wild - detect_format() sopra non conosce altro) ha finito
-# per citare "Trinket" e "Dark Gift" come se fossero cambiamenti al meta Wild, quando
-# in realta' sono meccaniche ESCLUSIVE di Battlegrounds (modalita' completamente
-# diversa dal gioco costruito, verificato sulle note della patch 36.2.2 citata dal
-# post stesso: la sezione Trinket/Dark Gift e' sotto "Battlegrounds Updates", non sotto
-# le modifiche Standard/Wild). La causa non e' un formato/espansione sbagliati (quello
-# lo controlla gia' format_valid per le carte RAG) ma una modalita' di gioco diversa
-# nascosta dentro la STESSA pagina di patch notes (Blizzard pubblica sempre Standard/
-# Wild e Battlegrounds nello stesso articolo) - search_web non ha modo di saperlo, e
-# nessun controllo esistente lo intercetta perche' questo pipeline pianifica SOLO post
-# su mazzi costruiti (il dataset del Planner viene da metastats/HSReplay, dati
-# esclusivamente di gioco costruito - vedi guida di progetto), quindi qualunque
-# menzione di questi termini in un claim e' gia' di per se' un segnale di modalita'
-# sbagliata, non serve nemmeno sapere il formato rilevato del post specifico.
-#
-# Elenco volutamente MINIMO e MECCANICO (stesso principio di SOURCE_TIER_DOMAINS in
-# search_tool.py: nessun giudizio semantico, solo termini che in Hearthstone non
-# esistono FUORI da Battlegrounds) - "battlegrounds" stesso, piu' le due meccaniche
-# del caso reale. Non include termini piu' ambigui (es. "hero power", "tavern") che
-# hanno anche un significato nel gioco costruito o sarebbero troppo generici.
+# Un post su un mazzo costruito puo' finire per citare meccaniche ESCLUSIVE di
+# Battlegrounds (es. "Trinket", "Dark Gift") trovate in un articolo di patch notes
+# che copre sia Standard/Wild sia Battlegrounds nella stessa pagina - search_web non
+# distingue le sezioni, e questa pipeline pianifica solo post su mazzi costruiti
+# (dataset da metastats/HSReplay), quindi qualunque menzione di questi termini e'
+# gia' di per se' un segnale di modalita' sbagliata. Elenco volutamente minimo e
+# meccanico (nessun giudizio semantico, solo termini che non esistono fuori da
+# Battlegrounds) - esclude termini ambigui come "hero power"/"tavern" che hanno
+# anche un significato nel gioco costruito.
 BATTLEGROUNDS_ONLY_KEYWORDS = ("battlegrounds", "trinket", "dark gift")
 
 
@@ -208,15 +195,11 @@ def mentions_battlegrounds_only(text: str) -> bool:
 
 
 
-# Correzione stilistica segnalata dall'utente l'11/09/2026: nella community italiana
-# di Hearthstone il "metagame" competitivo si dice al MASCHILE ("il meta"), non al
-# femminile ("la meta", che in italiano standard significherebbe "traguardo/obiettivo"
-# - genere diverso, parola diversa nel significato inteso qui). Sia PLANNER_SYSTEM_PROMPT
-# che FORMAT_SYSTEM_PROMPT usano gia' "il meta"/"nel meta" nel proprio testo (quindi il
-# modello ha gia' un esempio corretto sotto gli occhi), ma qwen3:8b lo ha comunque
-# scritto al femminile in piu' run reali - stesso limite di compliance testuale gia'
-# documentato altrove in questo progetto. Regola di codice come rete di sicurezza,
-# oltre a una regola esplicita aggiunta a entrambi i prompt.
+# Correzione stilistica: nella community italiana di Hearthstone il "metagame"
+# competitivo si dice al MASCHILE ("il meta"), non al femminile ("la meta", che in
+# italiano standard significa "traguardo"). I prompt usano gia' la forma corretta
+# come esempio, ma il modello la scrive comunque al femminile in alcuni run - regola
+# di codice come rete di sicurezza, oltre alla regola esplicita nei prompt.
 _META_GENDER_FIXES = [
     (r"\bdella\b(?=\s+meta\b)", "del"),
     (r"\bnella\b(?=\s+meta\b)", "nel"),

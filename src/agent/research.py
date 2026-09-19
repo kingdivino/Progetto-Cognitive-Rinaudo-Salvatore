@@ -48,21 +48,14 @@ MAX_TOOL_ITERATIONS = 6  # tetto di sicurezza - il prompt istruisce l'LLM a ferm
 # da solo quando ha materiale sufficiente, ma un limite esplicito evita cicli
 # infiniti se il modello continuasse a richiedere tool senza necessita'.
 
-# assess_deck_power_level (17/09/2026, roadmap punto 6): quarto tool, basato sul
-# modello fine-tuned (src/tools/power_level_tool.py) - requisito esplicito delle
-# specifiche ("almeno un tool aggiuntivo basato sul modello fine-tuned"). A
-# differenza degli altri 3 (che cercano/verificano FATTI esterni), questo produce
-# una VALUTAZIONE del modello (un'inferenza, non un fatto verificabile con una
-# fonte terza) - trattata comunque nello stesso ciclo ReAct e nello stesso schema
-# SourcedClaim per coerenza architetturale (stesso principio "selezione dinamica dei
-# tool" richiesto dalla specifica), ma con una fonte dedicata "MODELLO-FINETUNED"
-# (vedi SourcedClaim.source sotto) invece di essere confusa con URL/RAG/KG.
-# get_archetype_stats (18/09/2026, roadmap punto 6): quinto tool, il SECONDO dei
-# "2 tool aggiuntivi" richiesti dalla specifica (il primo e' assess_deck_power_level,
-# fine-tuned) - questo NON e' fine-tuned, interroga direttamente i dati reali
-# HSReplay (src/tools/stats_tool.py) per un winrate/popolarita' VERO invece di farlo
-# stimare al modello o cercare sul web (dove i risultati di questo progetto si sono
-# ripetutamente rivelati privi di data - vedi addendum del 18/09/2026). Fonte
+# assess_deck_power_level: tool basato sul modello fine-tuned (power_level_tool.py) -
+# requisito di specifica ("almeno un tool aggiuntivo basato sul modello fine-tuned").
+# Produce una VALUTAZIONE del modello (un'inferenza, non un fatto verificabile con
+# una fonte terza), tracciata con la fonte dedicata "MODELLO-FINETUNED" (vedi
+# SourcedClaim.source sotto) per non confonderla con URL/RAG/KG.
+# get_archetype_stats: secondo dei "2 tool aggiuntivi" richiesti - non fine-tuned,
+# interroga direttamente i dati reali HSReplay (stats_tool.py) per un winrate/
+# popolarita' VERO invece di farlo stimare al modello o cercare sul web. Fonte
 # dedicata "DATI-HSREPLAY", stesso principio di tracciamento di MODELLO-FINETUNED.
 TOOLS = [
     query_knowledge_graph, search_card_knowledge, search_web,
@@ -70,18 +63,12 @@ TOOLS = [
 ]
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
 
-# Fix del 18/09/2026 (osservato dal vivo: un run intero, 6/6 iterazioni, ha chiamato
-# SOLO query_knowledge_graph - gia' eseguito automaticamente per l'LLM prima che
-# iniziasse - nonostante il prompt dica esplicitamente 'non richiamarlo di nuovo'.
-# Risultato: zero tentativi di ricerca reale, 6 claim finali completamente fabbricati.
-# Un'istruzione testuale ripetuta non e' una garanzia (stesso principio gia' applicato
-# altrove in questo file, es. fix_meta_gender/dedup del Planner: un controllo in codice
-# batte un'istruzione nel prompt quando il modello non la rispetta in modo affidabile).
-# Qui il controllo in codice e' il piu' semplice possibile: non offrire affatto la scelta.
-# query_knowledge_graph resta disponibile SOLO per la chiamata forzata via codice (vedi
-# sotto, invocata direttamente, non tramite bind_tools) - il ciclo ReAct vero e proprio
-# vede solo i tool che raccolgono materiale REALE per il post, cosi' le iterazioni non
-# possono piu' essere sprecate ripetendo una domanda a cui e' gia' stata data risposta.
+# query_knowledge_graph e' escluso dal ciclo ReAct vero e proprio (resta disponibile
+# solo per la chiamata forzata via codice, invocata direttamente sotto): osservato un
+# run che lo richiamava di nuovo nonostante il prompt lo vietasse esplicitamente,
+# sprecando tutte le iterazioni senza fare ricerca reale. Un controllo in codice (non
+# offrire la scelta) batte un'istruzione ripetuta nel prompt quando il modello non la
+# rispetta in modo affidabile - stesso principio usato altrove in questo file.
 REACT_TOOLS = [
     search_card_knowledge, search_web,
     assess_deck_power_level, get_archetype_stats,
@@ -139,45 +126,33 @@ def classify_source_tier(source: str) -> str:
 
 # Verifica che la fonte dichiarata di un claim corrisponda DAVVERO a un'osservazione
 # ottenuta in QUESTA ricerca - non solo che sia scritta nel formato giusto (quello lo
-# fa gia' source_well_formed sopra, ma controlla solo la STRINGA, non i fatti).
-# Aggiunto l'08/09/2026 dopo un caso concreto e piu' grave di quanto emerso finora:
-# un run in cui il ciclo ReAct non ha chiamato NESSUN tool (il modello ha rifiutato
-# di farlo per tutte le 6 iterazioni disponibili, nonostante l'istruzione correttiva
-# ripetuta ad ogni turno) ma l'estrazione finale ha comunque prodotto 3 claim, due
-# dei quali con fonte "search_card_knowledge" - un tool MAI invocato in questa
-# conversazione. source_well_formed non lo aveva intercettato per accidente di
-# formato (quella stringa non e' "RAG: <nome carta>", quindi risultava gia' False),
-# ma un modello che avesse scritto "RAG: Azalina Soulsever" per una carta MAI
-# davvero cercata sarebbe passato inosservato con source_well_formed=True: un
-# fallimento silenzioso molto peggiore, perche' sembra una fonte valida.
+# fa gia' source_well_formed sopra, ma controlla solo la STRINGA, non i fatti). Caso
+# reale che ha motivato il fix: un run senza nessuna chiamata a tool ha comunque
+# prodotto claim con fonte "search_card_knowledge" mai invocato - un modello che
+# scriva "RAG: <nome carta mai cercata>" passerebbe indenne da source_well_formed
+# (che controlla solo il formato) e sembrerebbe una fonte valida.
 #
-# Qui il controllo e' meccanico e non richiede alcun giudizio semantico: per KG,
-# basta che query_knowledge_graph compaia in tools_used; per RAG/URL, il tool giusto
-# deve essere stato usato E il contenuto citato (nome carta o URL) deve comparire
-# per davvero nel testo di un'osservazione registrata in tool_outputs - non solo
-# "un tool a caso e' stato chiamato".
+# Il controllo e' meccanico: per KG basta che query_knowledge_graph compaia in
+# tools_used; per RAG/URL il tool giusto deve essere stato usato E il contenuto
+# citato deve comparire per davvero in un'osservazione registrata in tool_outputs.
 def _source_is_grounded(
     source: str, tools_used: list[str], tool_outputs: list[dict], claim_text: str = ""
 ) -> bool:
     src = (source or "").strip()
 
-    # Il controllo sulle percentuali e' UNIVERSALE e gira PRIMA della verifica
-    # specifica della fonte: qualunque percentuale citata in un claim, di
-    # QUALUNQUE fonte (non solo DATI-HSREPLAY/KG), deve comparire in almeno
-    # un'osservazione reale ottenuta da un tool in questa ricerca - altrimenti il
-    # claim e' respinto. Prima di questo fix un claim RAG/URL/MODELLO-FINETUNED
-    # poteva contenere qualunque cifra inventata senza che nulla la verificasse
-    # (vedi addendum di progetto, 19/09/2026, per il caso reale che lo ha rivelato).
+    # Controllo UNIVERSALE, prima della verifica specifica della fonte: qualunque
+    # percentuale citata in un claim (di QUALUNQUE fonte, non solo DATI-HSREPLAY/KG)
+    # deve comparire in almeno un'osservazione reale di un tool in questa ricerca,
+    # altrimenti il claim e' respinto (prima di questo fix un claim RAG/URL/
+    # MODELLO-FINETUNED poteva contenere una cifra inventata senza verifica).
     _pct_re = re.compile(r"\d+(?:[.,]\d+)?%")
     _claim_pcts = {m.replace(",", ".") for m in _pct_re.findall(claim_text or "")}
     if _claim_pcts:
-        # Ogni tool (rag_tool.py/search_tool.py/stats_tool.py/power_level_tool.py)
-        # ripete alla lettera il testo di 'justification' dentro la propria
-        # 'observation' - testo scelto liberamente dal modello, non dato reale.
-        # Va rimosso PRIMA di cercare percentuali "vere", altrimenti un numero
-        # fabbricato scritto dal modello nella propria justification (che spesso
-        # ripete la cifra che sta cercando di "confermare") passerebbe per dato
-        # reale del tool (vedi addendum di progetto, 19/09/2026).
+        # ROOT CAUSE (vedi addendum di progetto): ogni tool ripete alla lettera il
+        # testo di 'justification' (scelto liberamente dal modello) dentro la propria
+        # 'observation'. Va rimosso PRIMA di cercare percentuali "vere", altrimenti un
+        # numero fabbricato nella justification (che spesso ripete proprio la cifra
+        # che il modello sta cercando di "confermare") passerebbe per dato reale.
         _real_pcts_global: set = set()
         for o in tool_outputs:
             _obs_text = str(o.get("observation", ""))
@@ -361,29 +336,15 @@ def research_topic(state: AgentState) -> AgentState:
     kg_summary = dict(state.get("kg_summary", {}))
 
     post_plan = state.get("post_plan", [])
-    # RESEARCH_POST_INDEX: RIMASTO SOLO COME FALLBACK per invocare questo nodo in
-    # isolamento (es. un test diretto di un singolo post), non piu' il percorso
-    # normale dall'11/09/2026 - quando si passa dal grafo completo (src/agent/graph.py)
-    # 'current_post' arriva GIA' impostato da select_next_post
-    # (src/agent/orchestrator.py) per ogni post del piano in sequenza, e il blocco
-    # sotto (state.get("current_post") or ...) lo usa direttamente senza mai guardare
-    # questa variabile d'ambiente. Aggiunto l'08/09/2026 (quando la pipeline
-    # elaborava sempre e solo un post scelto a mano) dopo che l'utente ha notato che
-    # ogni test mostra sempre lo stesso mazzo (Azalina Priest) - causa reale doppia:
-    # e' genuinamente l'archetipo con i numeri migliori nel campione (quindi il
-    # Planner lo sceglie spesso come primo post), MA soprattutto questo nodo guardava
-    # SEMPRE E SOLO post_plan[0] a prescindere da cosa contenesse il resto del piano.
-    # " or '0'" protegge dal caso RESEARCH_POST_INDEX="" (stringa vuota, es. se qualcuno
-    # la mette nel .env con valore vuoto): senza, int("") solleverebbe ValueError.
-    # Il try/except protegge invece da un valore non numerico per errore di battitura
-    # (es. RESEARCH_POST_INDEX=tre): senza, int(...) solleverebbe ValueError e farebbe
-    # crashare l'intero nodo invece di ripiegare sul comportamento di default (post 0).
-    # os.environ.get(...) restituisce None se la variabile non e' MAI arrivata al
-    # processo Python (causa tipica su Windows: "set VAR=..." e' sintassi cmd.exe, non
-    # fa nulla in PowerShell - li' serve "$env:VAR=...", altrimenti PowerShell crea
-    # silenziosamente una variabile locale inutile senza errori). Tenerlo distinto da
-    # "impostata a 0" permette di capire dal solo reasoning_trace se l'override e'
-    # stato visto o no, senza dover indovinare quale terminale e' stato usato.
+    # RESEARCH_POST_INDEX: rimasto solo come fallback per invocare questo nodo in
+    # isolamento (es. un test diretto di un singolo post) - il percorso normale passa
+    # da select_next_post (orchestrator.py) che imposta gia' 'current_post', usato
+    # direttamente sotto senza guardare questa variabile. Il try/except protegge da
+    # un valore non numerico (es. errore di battitura nel .env) senza far crashare il
+    # nodo. os.environ.get(...) torna None se la variabile non e' mai arrivata al
+    # processo (causa tipica su Windows: "set VAR=..." e' sintassi cmd.exe, non fa
+    # nulla in PowerShell - serve "$env:VAR=..."), tenuto distinto da "impostata a 0"
+    # cosi' il reasoning_trace dice se l'override e' stato visto o no.
     _raw_post_index = os.environ.get("RESEARCH_POST_INDEX")
     if _raw_post_index is None:
         _post_index = 0
@@ -552,24 +513,16 @@ def research_topic(state: AgentState) -> AgentState:
     _duplicate_hits: dict[tuple, int] = {}
 
     # Passo fisso e obbligatorio del workflow, chiamato direttamente in codice invece
-    # di essere lasciato alla scelta dell'LLM. Il prompt di sistema chiede gia' di
-    # interrogare SEMPRE il KG per primo (K-RAG: il suo esito deve informare le
-    # ricerche successive) - e' sempre la stessa identica azione, zero giudizio
-    # richiesto, quindi non ha senso delegarla a una decisione del modello.
-    # Aggiunto l'08/09/2026 dopo un run (qwen3:14b, senza reasoning) in cui il
-    # modello ha rifiutato di chiamare QUALUNQUE tool per tutte e 6 le iterazioni
-    # disponibili, nonostante l'istruzione correttiva ripetuta ad ogni turno (il fix
-    # del 07/09/2026, "forza un altro giro se tools_used e' vuoto") - e ha comunque
-    # prodotto 3 claim finali, DUE dei quali con fonte "search_card_knowledge"
-    # nonostante quel tool non fosse mai stato invocato in questa conversazione: una
-    # fabbricazione piu' grave della semplice "nessuna ricerca fatta", perche' finge
-    # l'esistenza di un'osservazione mai avvenuta. Un'istruzione testuale ripetuta
-    # resta un'ipotesi sul comportamento del modello, mai una garanzia (stesso
-    # principio ormai visto piu' volte in questo progetto) - chiamare il tool
-    # direttamente elimina la classe di errore alla radice per questo primo passo, e
-    # garantisce che tools_used non sia mai vuoto quando inizia il ciclo LLM sotto
-    # (che resta comunque come rete di sicurezza per le iterazioni successive, in cui
-    # il modello sceglie davvero cosa fare).
+    # di essere lasciato alla scelta dell'LLM: il prompt chiede gia' di interrogare
+    # SEMPRE il KG per primo, sempre la stessa identica azione, zero giudizio
+    # richiesto. Osservato un run in cui il modello ha rifiutato di chiamare
+    # QUALUNQUE tool per tutte le iterazioni disponibili nonostante l'istruzione
+    # ripetuta, producendo comunque claim con fonte "search_card_knowledge" mai
+    # invocato - una fabbricazione piu' grave del "nessuna ricerca fatta", perche'
+    # finge un'osservazione mai avvenuta. Chiamare il tool direttamente elimina la
+    # classe di errore alla radice per questo primo passo, e garantisce che
+    # tools_used non sia mai vuoto quando inizia il ciclo LLM sotto (che resta
+    # comunque come rete di sicurezza per le iterazioni successive).
     forced_justification = (
         "Passo fisso del workflow (non richiede una decisione dell'LLM): controllare "
         "sempre il Knowledge Graph editoriale per primo, per evitare ripetizioni "
@@ -883,23 +836,16 @@ def research_topic(state: AgentState) -> AgentState:
                 or src == "DATI-HSREPLAY"
             )
 
-            # Riparazione automatica (16/09/2026): osservato su piu' run che qwen3:8b,
-            # quando la fonte e' di tipo search_web, spesso non scrive SOLO l'URL nel
-            # campo source ma copia (parte del)la riga intera del risultato Tavily -
-            # che in search_tool.py e' formattata "{titolo} — {url}\n   {contenuto}" -
-            # quindi l'URL vero e proprio e' spesso presente DENTRO alla stringa
-            # malformata, solo non all'inizio (esempi reali osservati: 'Note della
-            # patch 35.0 Blizzard Entertainment 03/09/2026. Ricompense: 2 Bigliett...',
-            # 'BlizzCon 2026: Hearthstone da' il benvenuto al Monaco...' - entrambi
-            # frammenti di titolo/contenuto di un risultato Tavily vero). Prima di
-            # scartare il claim solo per un problema di formattazione della citazione
-            # (non di contenuto), si prova a estrarne l'URL con una regex e lo si
-            # accetta SOLO se quell'URL compare per davvero in un'osservazione
-            # search_web ottenuta in QUESTA ricerca - stesso controllo di
-            # _source_is_grounded sotto, non ci si fida del testo da solo. Se non c'e'
-            # nessun URL riconoscibile nella stringa, o non e' riscontrabile in nessuna
-            # osservazione reale, il claim resta malformato come prima (nessuna
-            # riparazione "ottimistica" che inventi una fonte).
+            # Riparazione automatica: per fonti search_web, il modello spesso non scrive
+            # SOLO l'URL nel campo source ma copia (parte del)la riga intera del
+            # risultato Tavily (formattata "{titolo} — {url}\n   {contenuto}" in
+            # search_tool.py) - l'URL vero e' quindi spesso presente dentro la stringa
+            # malformata, solo non all'inizio. Prima di scartare il claim per un
+            # problema di sola formattazione, si prova a estrarne l'URL con una regex
+            # e lo si accetta SOLO se compare per davvero in un'osservazione search_web
+            # di questa ricerca (stesso controllo di _source_is_grounded sotto). Se
+            # nessun URL e' riscontrabile, il claim resta malformato come prima -
+            # nessuna riparazione "ottimistica" che inventi una fonte.
             if not well_formed:
                 _url_match = re.search(r"https?://\S+", src)
                 if _url_match:
@@ -1141,28 +1087,17 @@ def research_topic(state: AgentState) -> AgentState:
                 "prima di usarli nel post (campo 'mode_valid': False)."
             )
 
-        # Controllo "novita' presunta ma non confermata dalle date reali delle fonti" -
-        # aggiunto il 17/09/2026 dopo un caso reale: topic pianificato dal Planner
-        # ("Analisi dei NUOVI percorsi di missioni in Hearthstone", genericamente
-        # nell'ambito "eventi in-game a tempo" senza alcun dato concreto a supporto,
-        # quindi legittimo per le regole anti-invenzione del Planner) ricercato con
-        # successo (fonti reali, ben formate, playhearthstone.com) ma la funzionalita'
-        # descritta risaliva a una patch molto piu' vecchia (24.2) di quella attuale
-        # (36.x) - nessuna fabbricazione (i fatti riportati erano veri), ma il post
-        # finale presentava comunque il contenuto come una novita' perche' ne' Research
-        # ne' Format hanno mai confrontato la data reale della fonte con l'aspettativa
-        # di "novita'" gia' incorporata nel topic stesso. Il fix del 10/09/2026 (data
-        # di oggi iniettata nel prompt) copre il caso in cui il MODELLO scrive di sua
-        # iniziativa "recentemente" - non copre il caso in cui la premessa di novita'
-        # arriva gia' pronta dal topic del Planner e nessuno la ricontrolla contro le
-        # date reali trovate. Controllo puramente meccanico (nessun giudizio semantico
-        # sul contenuto, solo un confronto di date reali con "oggi"): se il topic o la
-        # motivazione del post contengono un termine che presuppone attualita', e
-        # nessuna fonte search_web di questa ricerca riporta una data "[pubblicato: ...]"
-        # negli ultimi ~6 mesi, un warning invita a controllare a mano prima di
-        # pubblicare - non blocca nulla, la fonte potrebbe comunque essere legittima
-        # (es. un evento senza data ufficiale chiara) ma la premessa "e' una novita'"
-        # va verificata da un umano invece di essere data per scontata.
+        # Controllo "novita' presunta ma non confermata dalle date reali delle fonti":
+        # un topic puo' presupporre attualita' (es. "nuovi percorsi di missioni") ed
+        # essere ricercato con successo con fonti vere, ma quelle fonti possono
+        # descrivere una funzionalita' vecchia di molte patch - nessuna fabbricazione,
+        # ma il post finale la presenta comunque come novita' perche' nessuno confronta
+        # la data reale della fonte con la premessa di "novita'" gia' nel topic (la
+        # data di oggi nel prompt copre solo il caso in cui e' il MODELLO a scrivere
+        # "recentemente" di sua iniziativa). Controllo meccanico, nessun giudizio
+        # semantico: se topic/motivazione presuppongono attualita' e nessuna fonte
+        # search_web riporta una data "[pubblicato: ...]" recente (~6 mesi), un
+        # warning invita a un controllo umano prima di pubblicare, senza bloccare.
         _novelty_keywords = (
             "nuovo", "nuova", "nuovi", "nuove",
             "recente", "recenti", "ultimo", "ultima", "ultimi", "ultime",

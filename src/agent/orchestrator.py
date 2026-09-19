@@ -74,18 +74,13 @@ def select_next_post(state: AgentState) -> AgentState:
                 "valido - ignorato, nessun limite applicato."
             )
 
-    # Rete di sicurezza (17/09/2026), parallela al fix in domain_data.py: quel fix
-    # impedisce che un archetipo gia' coperto venga PROPOSTO al Planner, ma non copre
-    # i topic tipo evento/review/news (inventati liberamente dall'LLM, non legati a
-    # un archetipo dei dati di scraping) - caso reale osservato lo stesso giorno,
-    # "Analisi dei nuovi percorsi di missioni in Hearthstone" ripetuto parola per
-    # parola nonostante fosse gia' un topic coperto ed esplicitamente elencato nel
-    # prompt del Planner. Controllo puramente meccanico (stringa esatta normalizzata,
-    # nessun giudizio semantico): se il topic del prossimo post e' IDENTICO a uno
-    # gia' presente nel KG (fotografato dal Planner a inizio run) o a uno di un post
-    # precedente di QUESTO STESSO piano, lo si salta senza nemmeno avviare Research/
-    # Format - inutile spendere 5-10 minuti di LLM su un contenuto che verrebbe
-    # comunque scartato in revisione, come e' successo in entrambi i casi reali.
+    # Rete di sicurezza parallela al fix in domain_data.py (che copre solo i topic
+    # legati a un archetipo dei dati di scraping, non quelli tipo evento/review/news
+    # inventati liberamente dal Planner). Controllo meccanico (stringa esatta
+    # normalizzata, nessun giudizio semantico): se il topic del prossimo post e'
+    # IDENTICO a uno gia' nel KG o a un post precedente di QUESTO piano, lo si salta
+    # senza avviare Research/Format - inutile spendere minuti di LLM su un contenuto
+    # che verrebbe comunque scartato in revisione.
     _covered_norm = {
         (t or "").strip().lower()
         for t in (state.get("planning_info", {}).get("covered_topics") or [])

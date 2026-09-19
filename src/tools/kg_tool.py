@@ -125,17 +125,11 @@ def update_knowledge_graph(
         sources=sources,
         claims=claims,
     )
-    # NON dare per scontato che collegare un Topic della stessa classe abbia trovato
-    # qualcosa a cui collegarsi (es. il primo post mai scritto per quella classe non
-    # ha nessun altro Topic da collegare) - il messaggio riflette il conteggio reale
-    # ritornato da write_approved_post, non solo se 'classe' e' nota.
+    # Il messaggio riflette il conteggio reale di n_related, non solo se 'classe' e'
+    # nota. Caso singolare gestito a parte: "relazione"/"creata" non condividono lo
+    # stesso suffisso plurale di "relazioni"/"create", quindi serve un branch esplicito
+    # invece di un'unica variabile plurale applicata a entrambe le parole.
     if classe and n_related == 1:
-        # Caso singolare: "relazione" (relazion+e) e "creata" (creat+a) non
-        # condividono lo stesso suffisso del plurale - bug reale trovato in un run
-        # vero l'11/09/2026 ("1 relazione RELATED_TO create", grammaticalmente
-        # sbagliato) quando un'unica variabile 'plural' veniva applicata a entrambe
-        # le parole. Branch esplicito invece di un suffisso condiviso, per evitare di
-        # ripetere lo stesso errore su un'altra coppia irregolare in futuro.
         extra = f", 1 relazione RELATED_TO creata con altri topic della classe {classe}"
     elif classe and n_related:
         extra = f", {n_related} relazioni RELATED_TO create con altri topic della classe {classe}"

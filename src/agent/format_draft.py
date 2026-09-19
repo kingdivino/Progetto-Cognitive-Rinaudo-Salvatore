@@ -221,12 +221,9 @@ def draft_post(state: AgentState) -> AgentState:
         llm_time_total += time.perf_counter() - _llm_start
         draft_dict = draft.model_dump()
 
-        # Dedup in codice delle fonti dichiarate (non lasciato alla sola istruzione
-        # nel prompt, che pure lo richiede esplicitamente "senza duplicati") - stesso
-        # principio "codice invece di prompt" gia' consolidato, qui applicato dopo
-        # aver osservato il 10/09/2026 (qwen3:1.7b) una fonte ripetuta due volte in
-        # 'fonti_citate' nonostante la regola. dict.fromkeys preserva l'ordine di
-        # prima apparizione, a differenza di un set puro.
+        # Dedup in codice delle fonti dichiarate (il prompt lo richiede gia', ma non
+        # basta da solo - osservate fonti ripetute nonostante la regola). dict.fromkeys
+        # preserva l'ordine di prima apparizione, a differenza di un set puro.
         _fonti_originali = draft_dict.get("fonti_citate", [])
         _fonti_deduplicate = list(dict.fromkeys(_fonti_originali))
         if len(_fonti_deduplicate) < len(_fonti_originali):
@@ -237,10 +234,8 @@ def draft_post(state: AgentState) -> AgentState:
             )
         draft_dict["fonti_citate"] = _fonti_deduplicate
 
-        # Rete di sicurezza in codice (segnalato dall'utente l'11/09/2026) per il
-        # genere di "il meta"/"la meta" - vedi fix_meta_gender in format_rules.py per
-        # il perche': la regola esplicita aggiunta sopra al prompt non basta da sola,
-        # stesso limite di compliance testuale gia' documentato altrove nel progetto.
+        # Rete di sicurezza in codice per il genere di "il meta"/"la meta" (vedi
+        # fix_meta_gender in format_rules.py) - la regola nel prompt non basta da sola.
         draft_dict["titolo"], _n_fix_titolo = fix_meta_gender(draft_dict.get("titolo", ""))
         draft_dict["corpo"], _n_fix_corpo = fix_meta_gender(draft_dict.get("corpo", ""))
         if _n_fix_titolo or _n_fix_corpo:
@@ -261,26 +256,12 @@ def draft_post(state: AgentState) -> AgentState:
                 "questa bozza e' generica per costruzione, va trattata con priorita' alta nella "
                 "revisione umana (roadmap: nodo Human Review)."
             )
-            # Rete di sicurezza (in codice, non ci si affida solo alla regola nel
-            # prompt e all'aver omesso la motivazione sopra): se nonostante tutto il
-            # testo generato contiene cifre che sembrano statistiche (percentuali,
-            # "N partite"), il fallback "generico" NON ha funzionato - caso reale
-            # osservato il 10/09/2026 prima di questo fix. Un controllo testuale con
-            # una regex non puo' MAI escludere ogni falso positivo/negativo (stesso
-            # limite di ogni euristica su testo libero in questo progetto), ma serve
-            # da avviso mirato invece di scoprirlo solo rileggendo a mano il corpo.
-            #
-            # 16/09/2026: il controllo originale scansionava SOLO corpo. Caso reale
-            # osservato lo stesso giorno (run dal vivo, post 2/6, "Azalina Priest"):
-            # il campo Topic (riga f"Topic: {current_post.get('topic')}\n" sopra,
-            # SEMPRE incluso nel prompt anche a claim vuoti, a differenza della
-            # motivazione appena omessa) conteneva gia' "winrate del 56.3%" scritto
-            # dal Planner - non verificato da nessun claim - e il titolo generato lo
-            # ha ripreso alla lettera, mentre il corpo restava correttamente generico
-            # ("non sono disponibili dati specifici..."). Nessun warning e' scattato
-            # perche' la cifra sospetta era nel titolo, non nel corpo: stesso schema
-            # del "Problema 3" dell'era Planner (chiusa una via di fuga, se ne apre
-            # una adiacente). Ora si controllano titolo E corpo insieme.
+            # Rete di sicurezza in codice: a 0 claim verificati il post dovrebbe restare
+            # generico, ma il fallback puo' non bastare se il testo contiene comunque
+            # cifre statistiche (percentuali, "N partite") - riprese ad es. dal campo
+            # Topic (sempre nel prompt, scritto dal Planner e non verificato). Si
+            # controllano titolo E corpo insieme: una cifra sospetta puo' finire in uno
+            # solo dei due mentre l'altro resta correttamente generico.
             _sospetti = re.findall(
                 r"\d+[.,]?\d*\s?%|\b\d{2,}\s+partite\b",
                 f"{draft_dict.get('titolo', '')} {draft_dict.get('corpo', '')}",
@@ -294,32 +275,16 @@ def draft_post(state: AgentState) -> AgentState:
                     "questi numeri."
                 )
 
-            # Seconda rete di sicurezza, stesso principio della precedente ma per un
-            # LEAK DIVERSO (16/09/2026): caso reale osservato dall'utente in un post
-            # "Azalina Priest" a 0 claim verificati, in cui il corpo - pur restando
-            # senza numeri, quindi senza far scattare il controllo sopra - nominava due
-            # carte specifiche ("*Santo Sussurro*", "*Santo Sacrificio*") che NON
-            # risultano essere traduzioni italiane ufficiali di nessuna carta reale
-            # (verificate via ricerca web - nessun riscontro), e comunque NESSUNA delle
-            # due compariva tra i risultati RAG davvero recuperati in quella ricerca
-            # (Azalina Soulsever, Unfettered Azalina) - pura invenzione del modello,
-            # nonostante la regola esplicita nel prompt sopra ("non aggiungere MAI un
-            # fatto specifico... nomi di carte... che non sia nell'elenco"). Stesso
-            # limite di compliance testuale gia' visto per le statistiche: l'istruzione
-            # da sola non basta con qwen3:8b.
-            #
-            # Qui non e' possibile verificare in codice se un nome sia una carta REALE
-            # (l'indice RAG/HearthstoneJSON locale e' solo in inglese, non abbiamo una
-            # localizzazione italiana ufficiale con cui confrontare - stesso limite di
-            # dati gia' noto per altre parti del progetto), quindi il controllo non puo'
-            # essere "il nome esiste?" come per format_valid/class_valid sulle carte
-            # RAG. Si usa invece un segnale strutturale piu' debole ma comunque utile:
-            # il modello stesso, in questo e in altri casi osservati, evidenzia i nomi
-            # di carta racchiudendoli tra asterischi (enfasi Markdown) - un post
-            # davvero generico (senza fatti specifici) non ha motivo di enfatizzare
-            # nessuna entita' con questo stile. Non individua ogni possibile invenzione
-            # (falsi negativi se il modello non usa gli asterischi), ma segnala il caso
-            # osservato invece di lasciarlo passare silenzioso.
+            # Seconda rete di sicurezza, stesso principio ma per un leak diverso: a 0
+            # claim verificati il corpo puo' restare senza numeri (niente warning sopra)
+            # eppure nominare carte specifiche inventate (caso reale: nomi italiani non
+            # riscontrabili come traduzione ufficiale di nessuna carta, ne' nei risultati
+            # RAG di quella ricerca). Non e' verificabile in codice se un nome e' una
+            # carta reale (l'indice RAG e' solo in inglese, senza localizzazione italiana
+            # da confrontare), quindi si usa un segnale piu' debole ma utile: il modello
+            # tende a evidenziare i nomi di carta tra asterischi (enfasi Markdown), cosa
+            # che un post davvero generico non avrebbe motivo di fare. Falsi negativi
+            # possibili se il modello non usa asterischi, ma meglio di un leak silenzioso.
             _entita_enfatizzate = re.findall(
                 r"\*([^*\n]{3,60})\*",
                 f"{draft_dict.get('titolo', '')} {draft_dict.get('corpo', '')}",

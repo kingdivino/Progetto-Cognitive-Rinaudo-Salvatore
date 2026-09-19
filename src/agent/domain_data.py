@@ -115,18 +115,11 @@ def load_archetype_signals(
             "winrate": f"{row['winrate']:.1f}%",
             "partite": int(row["games"]),
             "numero_carte_mazzo": int(row["n_cards_total"]),
-            "formato": row["formato"],  # "Standard" o "Wild" - vedi src/agent/format_rules.py:
-            # in Wild sono legali tutte le carte mai pubblicate, in Standard solo un
-            # sottoinsieme di espansioni in rotazione (aggiunto 07/09/2026 dopo aver
-            # unito una seconda fonte dati - HSReplay.net - che include anche mazzi Wild)
+            "formato": row["formato"],  # "Standard" o "Wild" (vedi format_rules.py)
         }
-        # Costo in polvere arcana per craftare il mazzo (aggiunto 08/09/2026, su
-        # richiesta dell'utente) - calcolato localmente dalla decklist +
-        # rarita' delle carte in notebooks/03_build_finetune_dataset.py, non recuperato
-        # da nessuna fonte esterna (vedi commento li' per il perche'). Omesso dal
-        # dizionario (invece di un fuorviante 0/None) se il CSV in uso e' precedente
-        # a questa aggiunta - un campo assente e' piu' sicuro di uno zero che
-        # sembrerebbe un mazzo gratis da craftare.
+        # Costo in polvere arcana: calcolato localmente da decklist + rarita' delle
+        # carte (notebooks/03_build_finetune_dataset.py), non da fonte esterna. Omesso
+        # (invece di un fuorviante 0/None) se il CSV e' precedente a questa aggiunta.
         if pd.notna(row["costo_polvere"]):
             entry["costo_polvere"] = int(row["costo_polvere"])
         result.append(entry)

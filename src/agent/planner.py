@@ -230,24 +230,12 @@ def plan_posts(state: AgentState) -> AgentState:
         llm_elapsed = time.perf_counter() - llm_start
         post_plan = [p.model_dump() for p in plan.posts]
 
-        # Rete di sicurezza in codice (18/09/2026), stesso principio di
-        # fix_meta_gender sotto: la regola esplicita nel prompt ("Non ripetere un
-        # topic gia' presente...") NON e' bastata da sola, osservato piu' volte con
-        # topic ripetuti PAROLA PER PAROLA nonostante la lista dei topic coperti
-        # fosse esplicitamente nel messaggio (es. "Analisi dei nuovi percorsi di
-        # missioni in Hearthstone" ripianificato identico il 18/09/2026, due volte
-        # nella stessa sessione di test). Finora la ripetizione veniva intercettata
-        # solo a valle, in src/agent/orchestrator.py (select_next_post), che salta il
-        # post senza avviare Research - corretto per evitare spreco di tempo, ma non
-        # risolve il vero requisito della specifica ("il Planner tiene conto del KG
-        # per evitare ridondanza": e' il Planner stesso che deve evitarla, non solo
-        # un controllo successivo che nasconde il sintomo). Qui si rimuovono quindi
-        # gia' in fase di pianificazione i post il cui topic e' IDENTICO (stessa
-        # normalizzazione .strip().lower() usata in orchestrator.py, nessun giudizio
-        # semantico) a un topic gia' nel KG o a un altro topic dello stesso piano
-        # appena generato - il piano finale puo' quindi risultare piu' corto di
-        # n_posts quando questo succede, l'orchestrator gestisce gia' un piano piu'
-        # corto senza problemi.
+        # Rete di sicurezza in codice: la regola del prompt non basta da sola (topic
+        # ripetuti PAROLA PER PAROLA osservati nonostante la lista nel messaggio). Si
+        # rimuovono qui, in fase di pianificazione (non solo a valle in orchestrator.py,
+        # che salta il post ma non evita la ridondanza a monte), i post il cui topic e'
+        # IDENTICO a uno gia' nel KG o nel piano - il piano finale puo' risultare piu'
+        # corto di n_posts, gia' gestito da chi lo consuma.
         _covered_norm_planner = {(t or "").strip().lower() for t in covered_topics}
         _post_plan_dedup = []
         _seen_topic_norm: set[str] = set()
@@ -276,12 +264,9 @@ def plan_posts(state: AgentState) -> AgentState:
                 "(evitare ridondanza tenendo conto del KG)."
             )
 
-        # Rete di sicurezza in codice (segnalato dall'utente l'11/09/2026) per il
-        # genere di "il meta"/"la meta" - vedi fix_meta_gender in format_rules.py per
-        # il perche': la regola esplicita nel prompt sopra non basta da sola, stesso
-        # limite di compliance testuale gia' documentato altrove nel progetto. Va
-        # corretto qui (non solo nel nodo Format) perche' il "topic" pianificato qui
-        # e' spesso ripreso quasi alla lettera come titolo del post finale.
+        # Rete di sicurezza in codice per il genere di "il meta"/"la meta" (vedi
+        # fix_meta_gender in format_rules.py) - corretto anche qui, non solo in Format,
+        # perche' il topic pianificato qui e' spesso ripreso come titolo del post finale.
         _n_fix_totale = 0
         for post in post_plan:
             post["topic"], _n = fix_meta_gender(post.get("topic", ""))
