@@ -1,20 +1,28 @@
 """
-Knowledge Graph tool (uno dei 3 tool minimi obbligatori dalla specifica) - query
-(non scrittura) sul Knowledge Graph Neo4j per il nodo Research/ReAct.
+Knowledge Graph tool (uno dei 3 tool minimi obbligatori dalla specifica: "Knowledge
+Graph tool (query + update)") - espone sia la query (usata da Research/Format) sia
+l'update (usato dal nodo KG Update, roadmap punto 8) sullo stesso grafo Neo4j.
 
-Solo QUERY qui, non update: le specifiche impongono che il KG si aggiorni SOLO dopo
-approvazione umana del post (human-in-the-loop) - la scrittura vera e propria vive nel
-futuro nodo "KG Update" (roadmap punto 5, dopo il nodo Human Review), non qui. Questo
-tool serve al Research/ReAct per leggere lo stato attuale del grafo (coerenza con post
-precedenti, gap di copertura) e per il K-RAG: usare quello che trova qui per
-raffinare la query da mandare al RAG (search_card_knowledge) o al search tool -
-istruzione esplicita nel prompt del nodo Research (src/agent/research.py), non
-logica automatica dentro al tool stesso.
+query_knowledge_graph serve al Research/ReAct per leggere lo stato attuale del grafo
+(coerenza con post precedenti, gap di copertura) e per il K-RAG: usare quello che
+trova qui per raffinare la query da mandare al RAG (search_card_knowledge) o al
+search tool - istruzione esplicita nel prompt del nodo Research, non logica
+automatica dentro al tool stesso.
 
-Il parametro `justification` e' obbligatorio per lo stesso motivo degli altri due
-tool minimi.
+update_knowledge_graph scrive un post nel grafo - MA va chiamato SOLO dal nodo KG
+Update (src/agent/kg_update.py), e SOLO dopo che il nodo Human Review ha registrato
+un'approvazione esplicita (requisito della specifica: "Il KG si aggiorna SOLO dopo
+approvazione"). Stesso principio "chiamata fissa in codice, non lasciata alla
+discrezione di un ciclo ReAct" gia' consolidato in questo progetto per le chiamate
+fisse a query_knowledge_graph in Research/Format - qui a maggior ragione, dato che
+scrivere sul KG senza una vera approvazione violerebbe un requisito esplicito.
+
+Il parametro `justification` e' obbligatorio su entrambi i tool per lo stesso motivo
+degli altri tool minimi (ogni invocazione di tool va giustificata).
 """
 from __future__ import annotations
+
+import datetime
 
 from langchain_core.tools import tool
 
@@ -61,3 +69,79 @@ def query_knowledge_graph(justification: str) -> str:
     for post in recent_posts:
         lines.append(f"  - [{post.get('tipo')}] {post.get('topic')} ({post.get('created_at')})")
     return "\n".join(lines)
+
+
+@tool
+def update_knowledge_graph(
+    justification: str,
+    post_id: str,
+    tipo: str,
+    topic: str,
+    summary: str,
+    sources: list[dict],
+    claims: list[dict],
+    classe: str | None = None,
+    formato: str | None = None,
+) -> str:
+    """Scrive un post APPROVATO nel Knowledge Graph editoriale: nodo Post, nodo Topic
+    (con classe/formato se noti), fonti citate, claim chiave con la fonte a supporto,
+    e relazioni RELATED_TO tra Topic della stessa classe di mazzo.
+
+    ATTENZIONE (vedi docstring del modulo): questo tool va invocato SOLO dal nodo KG
+    Update, SOLO dopo un'approvazione umana esplicita registrata dal nodo Human
+    Review - mai in autonomia da un ciclo ReAct.
+
+    Args:
+        justification: perche' si sta scrivendo ora (per coerenza con gli altri
+            tool - qui la chiamata e' comunque sempre fissa in codice, mai una
+            decisione del modello).
+        post_id: identificatore univoco del post (generato dal chiamante).
+        tipo: tipo di post (how-to/review/news/eventi).
+        topic: argomento del post.
+        summary: testo del post approvato.
+        sources: fonti effettivamente citate nel post pubblicato, come
+            [{"ref": "<stringa fonte>", "tier": "<esito classify_source_tier>"}].
+        claims: claim chiave del post con la fonte a supporto, come
+            [{"text": "...", "source": "<deve corrispondere a un ref in sources>"}].
+        classe: classe Hearthstone del mazzo trattato, se nota (es. "PRIEST").
+        formato: formato di gioco del post, se noto ("standard"/"wild"/"misto").
+    """
+    if not kg.check_connection():
+        return (
+            "[KG non raggiungibile] Neo4j non e' avviato o il .env non e' configurato "
+            "- il post NON e' stato scritto sul grafo (nessuna perdita silenziosa: "
+            "l'aggiornamento va semplicemente rilanciato quando Neo4j e' di nuovo "
+            "raggiungibile)."
+        )
+    kg.ensure_schema()
+    n_related = kg.write_approved_post(
+        post_id=post_id,
+        tipo=tipo,
+        topic=topic,
+        created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        summary=summary,
+        classe=classe,
+        formato=formato,
+        sources=sources,
+        claims=claims,
+    )
+    # NON dare per scontato che collegare un Topic della stessa classe abbia trovato
+    # qualcosa a cui collegarsi (es. il primo post mai scritto per quella classe non
+    # ha nessun altro Topic da collegare) - il messaggio riflette il conteggio reale
+    # ritornato da write_approved_post, non solo se 'classe' e' nota.
+    if classe and n_related == 1:
+        # Caso singolare: "relazione" (relazion+e) e "creata" (creat+a) non
+        # condividono lo stesso suffisso del plurale - bug reale trovato in un run
+        # vero l'11/09/2026 ("1 relazione RELATED_TO create", grammaticalmente
+        # sbagliato) quando un'unica variabile 'plural' veniva applicata a entrambe
+        # le parole. Branch esplicito invece di un suffisso condiviso, per evitare di
+        # ripetere lo stesso errore su un'altra coppia irregolare in futuro.
+        extra = f", 1 relazione RELATED_TO creata con altri topic della classe {classe}"
+    elif classe and n_related:
+        extra = f", {n_related} relazioni RELATED_TO create con altri topic della classe {classe}"
+    elif classe:
+        extra = f", nessuna relazione RELATED_TO creata (nessun altro topic della classe {classe} ancora nel grafo)"
+    else:
+        extra = ""
+    return f"Post '{topic}' scritto nel KG (id={post_id}): {len(sources)} fonti, {len(claims)} claim collegati{extra}."
+

@@ -18,8 +18,15 @@ faiss-cpu>=1.8.0                # vector search
 # --- Fine-tuning (PEFT/LoRA) ---
 transformers>=4.44.0
 peft>=0.13.0
+accelerate>=1.0.0             # richiesto da transformers/peft per il training
+trl>=0.11.0                    # SFTTrainer/SFTConfig usati in 13_finetune_train.py
 datasets>=3.0.0
-torch>=2.4.0
+torch>=2.4.0                    # ATTENZIONE: 'pip install -r requirements.txt' da solo installa la
+# build CPU-only di default. Per il fine-tuning su GPU (verificato il 17/09/2026 su
+# NVIDIA RTX 3050, 4GB VRAM, driver con supporto CUDA fino a 13.4): disinstallare e
+# reinstallare con "pip install torch --index-url https://download.pytorch.org/whl/cu128"
+# (CUDA 12.8, la build stabile piu' recente offerta da pytorch.org a questa data -
+# compatibile "all'indietro" con un driver che supporta CUDA 13.4).
 scikit-learn>=1.5.0            # metriche di valutazione (F1, correlazione, ecc.)
 pandas>=2.2.0
 

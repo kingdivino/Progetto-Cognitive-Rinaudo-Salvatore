@@ -52,6 +52,26 @@ def _load_index():
     return _index, _metadata, _embedder
 
 
+def get_card_info_by_name(name: str) -> dict | None:
+    """Cerca una carta per nome ESATTO (case-insensitive) nei metadati gia' caricati
+    dall'indice RAG e ritorna {'set': ..., 'cardClass': ...}, o None se non trovata o
+    se l'indice non e' disponibile. Usato dal nodo Research per verificare in codice -
+    non solo a parole nel prompt - che una carta suggerita in un claim con fonte
+    'RAG: <nome>' sia davvero legale nel formato (Standard/Wild, src/agent/
+    format_rules.py) E della classe giusta (o Neutrale) per il mazzo del post in
+    corso - una carta di classe sbagliata non e' giocabile in quel mazzo, a
+    prescindere dal formato."""
+    try:
+        _, metadata, _ = _load_index()
+    except Exception:
+        return None
+    name_lower = name.strip().lower()
+    for card in metadata:
+        if (card.get("name") or "").strip().lower() == name_lower:
+            return {"set": card.get("set"), "cardClass": card.get("cardClass")}
+    return None
+
+
 @tool
 def search_card_knowledge(query: str, justification: str, top_k: int = 5) -> str:
     """Cerca nel corpus locale (RAG) informazioni su carte Hearthstone: testo,

@@ -29,6 +29,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from src.agent.domain_data import load_archetype_signals
+from src.agent.format_rules import fix_meta_gender
 from src.agent.llm_config import build_llm
 from src.agent.state import AgentState
 from src.kg import connection as kg
@@ -134,10 +135,33 @@ Regole:
     l'unicita' guardando solo la voce di cui stai scrivendo: un'affermazione di
     unicita' sbagliata e' un errore grave perche' contraddice dati che hai gia'
     ricevuto nello stesso messaggio.
+  - Il campo "formato" ("Standard" o "Wild") indica in quale formato e' stato
+    giocato quel mazzo specifico. E' una distinzione IMPORTANTE, non un dettaglio: in
+    Wild sono legali tutte le carte mai pubblicate in Hearthstone, in Standard solo un
+    sottoinsieme (le espansioni attualmente in rotazione). Quando proponi un topic su
+    un mazzo con "formato": "Standard", specifica sempre il formato nel topic/
+    justification (es. "guida al Dragon Warrior Standard", non solo "guida al Dragon
+    Warrior") - il nodo di ricerca a valle usa questa indicazione per non suggerire
+    carte non legali in quel formato. Non mescolare mai dati di mazzi con "formato"
+    diversi nello stesso post come se fossero comparabili/dello stesso meta.
   - Gli "Archetipi reali dai dati di scraping" sono un CAMPIONE (una manciata di
     mazzi selezionati), non l'intero dataset di scraping: non scrivere affermazioni
     tipo "nel dataset" o "nel meta attuale" quando intendi solo il campione che ti e'
-    stato fornito - usa invece "tra gli archetipi forniti" o "in questo campione"."""
+    stato fornito - usa invece "tra gli archetipi forniti" o "in questo campione".
+  - Il campo "costo_polvere" (quando presente) e' il costo in polvere arcana per
+    craftare quel mazzo specifico (copie standard, non dorate) - un dato puramente
+    economico/di collezione, NON un indicatore di forza o qualita': un mazzo costoso
+    non e' automaticamente piu' forte o piu' interessante di uno economico, e
+    viceversa. Puoi citarlo (es. per aiutare un lettore a valutare se vale la pena
+    craftarlo) ma non dedurne affermazioni su winrate o popolarita' - quelle restano
+    supportate solo dai campi dedicati (vedi sopra). Se assente per un archetipo, non
+    inventare un valore ne' assumere che costi 0.
+- Quando parli del "meta" (il metagame competitivo del gioco), usa SEMPRE l'articolo
+  MASCHILE: "il meta", "del meta", "nel meta", "un meta" - MAI "la meta"/"della
+  meta"/"nella meta"/"una meta" (in italiano standard "meta" al femminile
+  significherebbe "traguardo/obiettivo", un significato diverso - la community
+  italiana di Hearthstone usa questo prestito al maschile), sia nel campo "topic" sia
+  nella "justification"."""
 
 
 def plan_posts(state: AgentState) -> AgentState:
@@ -161,7 +185,12 @@ def plan_posts(state: AgentState) -> AgentState:
             "- si procede assumendo nessuno storico. Verificare che Neo4j Desktop sia avviato."
         )
 
-    archetype_signals = load_archetype_signals(top_n=8)
+    # covered_topics passato qui (17/09/2026): esclude a monte, in codice, gli
+    # archetipi il cui nome e' gia' comparso in un topic pubblicato - vedi il
+    # commento in load_archetype_signals per il caso reale che ha motivato il fix
+    # (il solo elenco testuale nel prompt sotto non e' bastato a impedire una
+    # ripetizione parola per parola).
+    archetype_signals = load_archetype_signals(top_n=8, covered_topics=covered_topics)
     if archetype_signals:
         reasoning_trace.append(
             f"[Planner] {len(archetype_signals)} archetipi reali recuperati da "
@@ -200,6 +229,72 @@ def plan_posts(state: AgentState) -> AgentState:
         })
         llm_elapsed = time.perf_counter() - llm_start
         post_plan = [p.model_dump() for p in plan.posts]
+
+        # Rete di sicurezza in codice (18/09/2026), stesso principio di
+        # fix_meta_gender sotto: la regola esplicita nel prompt ("Non ripetere un
+        # topic gia' presente...") NON e' bastata da sola, osservato piu' volte con
+        # topic ripetuti PAROLA PER PAROLA nonostante la lista dei topic coperti
+        # fosse esplicitamente nel messaggio (es. "Analisi dei nuovi percorsi di
+        # missioni in Hearthstone" ripianificato identico il 18/09/2026, due volte
+        # nella stessa sessione di test). Finora la ripetizione veniva intercettata
+        # solo a valle, in src/agent/orchestrator.py (select_next_post), che salta il
+        # post senza avviare Research - corretto per evitare spreco di tempo, ma non
+        # risolve il vero requisito della specifica ("il Planner tiene conto del KG
+        # per evitare ridondanza": e' il Planner stesso che deve evitarla, non solo
+        # un controllo successivo che nasconde il sintomo). Qui si rimuovono quindi
+        # gia' in fase di pianificazione i post il cui topic e' IDENTICO (stessa
+        # normalizzazione .strip().lower() usata in orchestrator.py, nessun giudizio
+        # semantico) a un topic gia' nel KG o a un altro topic dello stesso piano
+        # appena generato - il piano finale puo' quindi risultare piu' corto di
+        # n_posts quando questo succede, l'orchestrator gestisce gia' un piano piu'
+        # corto senza problemi.
+        _covered_norm_planner = {(t or "").strip().lower() for t in covered_topics}
+        _post_plan_dedup = []
+        _seen_topic_norm: set[str] = set()
+        _n_duplicati_rimossi = 0
+        for post in post_plan:
+            _topic_norm = (post.get("topic") or "").strip().lower()
+            if _topic_norm and (_topic_norm in _covered_norm_planner or _topic_norm in _seen_topic_norm):
+                _n_duplicati_rimossi += 1
+                reasoning_trace.append(
+                    "[Planner] [WARNING] Post pianificato scartato in fase di planning: "
+                    f"topic IDENTICO (parola per parola) a uno gia' nel KG o a un altro "
+                    f"post di questo stesso piano, nonostante la regola esplicita nel "
+                    f"prompt - topic: {post.get('topic')!r}."
+                )
+                continue
+            if _topic_norm:
+                _seen_topic_norm.add(_topic_norm)
+            _post_plan_dedup.append(post)
+        post_plan = _post_plan_dedup
+        if _n_duplicati_rimossi:
+            reasoning_trace.append(
+                f"[Planner] Rimossi {_n_duplicati_rimossi} post duplicati dal piano in fase "
+                f"di planning (piano finale: {len(post_plan)}/{n_posts} post richiesti) - "
+                "stessa filosofia di fix_meta_gender sotto: un controllo in codice, non solo "
+                "un'istruzione nel prompt, per un requisito esplicito della specifica "
+                "(evitare ridondanza tenendo conto del KG)."
+            )
+
+        # Rete di sicurezza in codice (segnalato dall'utente l'11/09/2026) per il
+        # genere di "il meta"/"la meta" - vedi fix_meta_gender in format_rules.py per
+        # il perche': la regola esplicita nel prompt sopra non basta da sola, stesso
+        # limite di compliance testuale gia' documentato altrove nel progetto. Va
+        # corretto qui (non solo nel nodo Format) perche' il "topic" pianificato qui
+        # e' spesso ripreso quasi alla lettera come titolo del post finale.
+        _n_fix_totale = 0
+        for post in post_plan:
+            post["topic"], _n = fix_meta_gender(post.get("topic", ""))
+            _n_fix_totale += _n
+            post["justification"], _n = fix_meta_gender(post.get("justification", ""))
+            _n_fix_totale += _n
+        if _n_fix_totale:
+            reasoning_trace.append(
+                f"[Planner] Corretto il genere di 'meta' (la -> il) {_n_fix_totale} volta/e tra "
+                "topic/justification dei post pianificati (l'LLM lo aveva scritto al femminile "
+                "nonostante la regola esplicita nel prompt)."
+            )
+
         reasoning_trace.append(
             f"[Planner] Pianificati {len(post_plan)} post (chiamata LLM: {llm_elapsed:.1f}s)."
         )

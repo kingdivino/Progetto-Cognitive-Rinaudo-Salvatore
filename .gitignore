@@ -26,3 +26,9 @@ Thumbs.db
 # Output di debug degli script, non va versionato
 scrape_output.txt
 debug_*.html
+
+# Checkpoint del fine-tuning (LoRA, ottimizzatore, tokenizer per ogni run/epoca) -
+# 467MB in totale, ben oltre il limite pratico di GitHub senza Git LFS, e comunque
+# rigenerabili con notebooks/13_finetune_train.py. Si tiene solo il CSV con i dati
+# reali (finetune_dataset.csv), che serve anche a stats_tool.py in produzione.
+data/processed/finetune_powerlevel/

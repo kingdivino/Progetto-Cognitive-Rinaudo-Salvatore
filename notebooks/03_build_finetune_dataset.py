@@ -3,7 +3,11 @@ Feature engineering — dai mazzi grezzi raccolti da metastats.net (notebooks/02
 dataset pronto per il fine-tuning del classificatore power level/interestingness.
 
 Input:
-- data/raw/metastats/decks_<data>.csv (uno o più snapshot settimanali)
+- data/raw/metastats/decks_<data>.csv (uno o più snapshot settimanali, da 02_scrape_metastats.py)
+- data/raw/hsreplay/decks_<data>.csv (una o più esecuzioni di notebooks/07_scrape_hsreplay.py,
+  seconda fonte aggiunta il 07/09/2026 dopo aver scoperto un endpoint pubblico non
+  autenticato — vedi il docstring di quel file. deck_id e' un namespace separato da
+  metastats.net (stringa vs intero), quindi le due fonti si sommano senza collisioni)
 - HearthstoneJSON (scaricato/cachato in data/raw/hearthstonejson/cards.json) per le
   caratteristiche reali delle carte (costo mana, attacco/vita, rarità, tipo, meccaniche)
 
@@ -60,6 +64,7 @@ import pandas as pd
 import requests
 
 RAW_DIR = os.path.join("data", "raw", "metastats")
+RAW_DIR_HSREPLAY = os.path.join("data", "raw", "hsreplay")
 HSJSON_DIR = os.path.join("data", "raw", "hearthstonejson")
 HSJSON_PATH = os.path.join(HSJSON_DIR, "cards.json")
 HSJSON_URL = "https://api.hearthstonejson.com/v1/latest/enUS/cards.json"
@@ -68,6 +73,39 @@ OUT_DIR = os.path.join("data", "processed")
 OUT_PATH = os.path.join(OUT_DIR, "finetune_dataset.csv")
 
 MIN_GAMES = 30  # sotto questa soglia il winrate è considerato troppo rumoroso
+
+# USE_METASTATS_DATA (15/09/2026): la patch di bilanciamento 36.4.2 e' uscita il
+# 03/09/2026 (verificato su news.blizzard.com/HearthPwn) - proprio la data dell'ultimo
+# snapshot metastats.net raccolto (lo snapshot del 01/09 e' sicuramente pre-patch,
+# quello del 03/09 ambiguo). La patch ha modificato carte che possono comparire nei
+# mazzi del dataset (nerf: The Forbidden Sequence, Spiderling, The Food Chain; buff:
+# Agamaggan, Seismopod, Dread Leviathan). I winrate raccolti da metastats.net (01-03/09)
+# descrivono quindi un meta diverso da quello raccolto da HSReplay.net oggi (15/09,
+# post-patch di 12 giorni) - mescolare le due fonti vorrebbe dire associare alla STESSA
+# combinazione di feature (curva di mana, meccaniche, ecc.) un'etichetta di winrate
+# vera in momenti diversi del bilanciamento, senza che il modello abbia modo di saperlo
+# (scrape_date resta nel CSV come metadato ma non e' usato come feature di training) -
+# rumore nelle label, non solo "dati vecchi". Deciso di usare SOLO HSReplay.net da
+# questo momento in poi (si aggiorna nell'ordine di ore, non di settimane, quindi resta
+# internamente coerente con se stesso). Il caricamento di metastats.net
+# (load_all_snapshots, sotto) NON e' stato cancellato - solo escluso dal merge finale -
+# nel caso in futuro serva un confronto pre/post patch o si torni a usarlo.
+USE_METASTATS_DATA = False
+
+# Costo in polvere arcana per craftare UNA copia non dorata di ogni rarita' (valori
+# fissi e stabili del gioco, non cambiano con le espansioni). Aggiunto il 08/09/2026
+# su richiesta dell'utente ("sarebbe utile sapere il costo in polvere di un mazzo").
+# NON serve alcuna fonte esterna (ne' HSReplay ne' altro): la decklist (carta +
+# quantita') e la rarita' di ogni carta (gia' letta da HearthstoneJSON per altre
+# feature, vedi counts_by_rarity sotto) bastano da sole per calcolarlo in modo
+# esatto - stessa lezione gia' imparata con le espansioni Standard (data/raw/hsreplay/
+# standard_legal_sets.json): quando un dato e' calcolabile localmente da fonti gia'
+# affidabili, e' meglio che affidarsi a un endpoint di terzi che potrebbe non
+# esporlo, cambiare, o (come successo li') significare qualcosa di diverso da quanto
+# sembra. Copre solo le copie standard/non dorate (le decklist che scarichiamo
+# riportano solo id carta + quantita', mai la qualita' della copia - dorato/diamante/
+# firma costano di piu' ma non sono distinguibili qui).
+DUST_COST_BY_RARITY = {"COMMON": 40, "RARE": 100, "EPIC": 400, "LEGENDARY": 1600, "OTHER": 0}
 # Carte che cambiano le regole di costruzione del mazzo (vedi nota nel docstring del
 # modulo) - usate per marcare i mazzi con has_special_deckbuild, non per scartarli.
 SPECIAL_DECKBUILD_CARD_NAMES = {"Azalina Soulsever", "Timethief Rafaam"}
@@ -176,11 +214,40 @@ def load_all_snapshots() -> pd.DataFrame:
 
     all_df["games"] = all_df["cells"].apply(extract_games)
     all_df["winrate"] = all_df["cells"].apply(extract_winrate)
+    # ASSUNZIONE DA VERIFICARE A MANO (07/09/2026): la pagina metastats.net usata da
+    # 02_scrape_metastats.py non mostra un selettore di formato esplicito - assumiamo
+    # RANKED_STANDARD (e' il formato di gran lunga piu' tracciato dai siti di questo
+    # tipo). Se si scopre che e' in realta' Wild (o misto), correggere questa riga:
+    # sbagliarla vorrebbe dire etichettare male 174 mazzi nel campo "formato" sotto.
+    all_df["game_type"] = "RANKED_STANDARD"
 
     # Dedup per deck_id: tiene la riga con più partite (stima più affidabile)
     all_df = all_df.sort_values("games", ascending=False).drop_duplicates(subset="deck_id", keep="first")
     log(f"Righe dopo dedup per deck_id (tiene la versione con più partite): {len(all_df)}")
     return all_df
+
+
+def load_hsreplay_snapshots() -> pd.DataFrame:
+    """Carica gli snapshot di notebooks/07_scrape_hsreplay.py, se presenti. A differenza
+    di load_all_snapshots() (metastats.net) qui 'cards_id_count' e' gia' nel formato
+    finale (lista di tuple id-stringa/quantita', vedi quel file) e 'winrate'/'games' sono
+    gia' colonne dirette (non vanno estratte da 'cells' come per metastats.net). Ritorna
+    un DataFrame vuoto con le colonne giuste se lo scraper non e' ancora stato lanciato,
+    cosi' questo script resta utilizzabile anche a chi non l'ha ancora eseguito."""
+    cols = ["deck_id", "cards_id_count", "winrate", "games", "scrape_date", "game_type"]
+    files = sorted(glob.glob(os.path.join(RAW_DIR_HSREPLAY, "decks_*.csv")))
+    if not files:
+        log(f"Nessuno snapshot HSReplay in {RAW_DIR_HSREPLAY} (notebooks/07_scrape_hsreplay.py non ancora lanciato) - salto questa fonte.")
+        return pd.DataFrame(columns=cols)
+
+    log(f"Snapshot HSReplay trovati: {files}")
+    frames = [pd.read_csv(f) for f in files]
+    all_df = pd.concat(frames, ignore_index=True)
+    log(f"Righe totali HSReplay (tutti gli snapshot, con duplicati per deck_id): {len(all_df)}")
+
+    all_df = all_df.sort_values("games", ascending=False).drop_duplicates(subset="deck_id", keep="first")
+    log(f"Righe HSReplay dopo dedup per deck_id: {len(all_df)}")
+    return all_df[cols]
 
 
 def build_deck_features(row, card_lookup: dict, special_ids: set) -> dict | None:
@@ -242,6 +309,7 @@ def build_deck_features(row, card_lookup: dict, special_ids: set) -> dict | None
         "deck_class": deck_class,
         "n_cards_total": total_cards,  # 30 di norma; 20/40 per Azalina Soulsever/Timethief Rafaam (vedi nota sopra)
         "has_special_deckbuild": has_special_deckbuild,  # True se il mazzo include una carta che cambia le regole di costruzione
+        "formato": "Standard" if row.get("game_type") == "RANKED_STANDARD" else "Wild",  # vedi src/agent/format_rules.py per perche' serve distinguerlo esplicitamente
         "avg_cost": round(cost_sum / total_cards, 3),
         "avg_attack": round(sum(attack_values) / len(attack_values), 3) if attack_values else None,
         "avg_health": round(sum(health_values) / len(health_values), 3) if health_values else None,
@@ -254,6 +322,7 @@ def build_deck_features(row, card_lookup: dict, special_ids: set) -> dict | None
         "n_rare": counts_by_rarity["RARE"],
         "n_epic": counts_by_rarity["EPIC"],
         "n_legendary": counts_by_rarity["LEGENDARY"],
+        "costo_polvere": sum(DUST_COST_BY_RARITY[r] * n for r, n in counts_by_rarity.items()),  # polvere arcana per craftare il mazzo (copie standard, vedi nota sopra)
         **mechanic_counts,
         # target + info per filtrare/pesare in fase di training:
         "winrate": row["winrate"],
@@ -266,7 +335,24 @@ def build_deck_features(row, card_lookup: dict, special_ids: set) -> dict | None
 def main():
     card_lookup = download_hearthstonejson()
     special_ids = find_special_deckbuild_ids(card_lookup)
-    decks_df = load_all_snapshots()
+
+    if USE_METASTATS_DATA:
+        metastats_df = load_all_snapshots()
+    else:
+        metastats_df = pd.DataFrame(columns=["deck_id", "cards_id_count", "winrate", "games", "scrape_date", "game_type"])
+        log("USE_METASTATS_DATA=False (vedi commento in cima al file: dati pre-patch 36.4.2 "
+            "del 03/09/2026) - fonte metastats.net esclusa, 0 mazzi da questa fonte.")
+    hsreplay_df = load_hsreplay_snapshots()
+    # Solo i DataFrame non vuoti vanno passati a concat: unirne uno vuoto genera un
+    # FutureWarning di pandas (comportamento sugli extra/all-NA in via di deprecazione)
+    # e non serve comunque a nulla quando USE_METASTATS_DATA=False.
+    non_empty = [df for df in (metastats_df, hsreplay_df) if not df.empty]
+    decks_df = pd.concat(non_empty, ignore_index=True) if non_empty else metastats_df
+    # deck_id di metastats.net (intero) e HSReplay (stringa) sono namespace separati per
+    # costruzione (nessuna collisione possibile), ma ri-dedupliamo comunque per sicurezza
+    # nel caso una fonte venga rilanciata piu' volte nello stesso giorno.
+    decks_df = decks_df.sort_values("games", ascending=False).drop_duplicates(subset="deck_id", keep="first")
+    log(f"Mazzi totali dopo l'unione delle fonti (metastats.net: {len(metastats_df)}, HSReplay: {len(hsreplay_df)}): {len(decks_df)}")
 
     before = len(decks_df)
     decks_df = decks_df[decks_df["games"].notna() & (decks_df["games"] >= MIN_GAMES)]

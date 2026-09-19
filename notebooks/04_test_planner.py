@@ -34,12 +34,17 @@ from src.agent.graph import build_graph  # noqa: E402 (import dopo sys.path/load
 
 def main():
     graph = build_graph()
+    # thread_id richiesto da LangGraph perche' il grafo ora ha un checkpointer
+    # (serve al nodo Human Review, roadmap punto 7 - vedi src/agent/graph.py).
+    # Questo test non gestisce la revisione umana: si ferma quando il grafo la
+    # raggiunge e la segnala sotto, invece di rispondere all'interrupt.
+    config = {"configurable": {"thread_id": "test-04-planner"}}
     initial_state = {
         "user_input": "pianifica i prossimi post del blog",
         "reasoning_trace": [],
     }
     wall_start = time.perf_counter()
-    result = graph.invoke(initial_state)
+    result = graph.invoke(initial_state, config=config)
     wall_elapsed = time.perf_counter() - wall_start
 
     print("\n=== Reasoning trace ===")
@@ -59,6 +64,14 @@ def main():
     for key, seconds in timings.items():
         print(f"- {key}: {seconds:.1f}s")
     print(f"- tempo totale wall-clock (graph.invoke): {wall_elapsed:.1f}s")
+
+    if "__interrupt__" in result:
+        print(
+            "\n[INFO] Il grafo si e' fermato al nodo Human Review (interrupt) dopo "
+            "aver generato la bozza sopra - normale, questo test non gestisce la "
+            "revisione umana. Vedi notebooks/09_test_human_review.py per il test "
+            "end-to-end con approvazione/modifica/rigenerazione."
+        )
 
 
 if __name__ == "__main__":

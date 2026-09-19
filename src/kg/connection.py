@@ -1,18 +1,28 @@
 """
 Connessione a Neo4j + query di base per il Knowledge Graph editoriale.
 
-Schema minimo del grafo (creato incrementalmente man mano che i nodi che lo popolano
-vengono costruiti - per ora solo letto dal Planner, che quindi vede un grafo vuoto
-finche' non esiste ancora un nodo "KG Update"):
+Schema del grafo, scritto per la prima volta dal nodo KG Update (roadmap punto 8,
+src/agent/kg_update.py) SOLO dopo approvazione umana - fino ad allora il grafo resta
+vuoto (letto da Planner/Research/Format, che trattano il vuoto come stato normale):
 
     (:Post {id, tipo, topic, created_at, summary})
-    (:Topic {name})
-    (:Source {url, title})
+    (:Topic {name, classe, formato})
+    (:Source {ref, tier})
     (:Claim {text})
     (Post)-[:ABOUT]->(Topic)
     (Post)-[:CITES]->(Source)
     (Post)-[:MAKES_CLAIM]->(Claim)
     (Claim)-[:SUPPORTED_BY]->(Source)
+    (Topic)-[:RELATED_TO]->(Topic)   # collega topic con la stessa classe di mazzo
+                                      # (deterministico - non un giudizio LLM su cosa
+                                      # sia "correlato", stesso principio "codice
+                                      # invece di prompt" del resto del progetto)
+
+NOTE sullo schema rispetto alla bozza iniziale (rivista scrivendo il nodo KG Update,
+10/09/2026): Source usa 'ref' invece di 'url' perche' una fonte non e' sempre un URL
+(puo' essere "RAG: <nome carta>" o "KG", vedi source_well_formed in research.py) -
+'ref' e' la stringa fonte cosi' com'e', 'tier' e' l'esito di classify_source_tier()
+(aggregato/ufficiale/opinione_singola/dati_locali/sconosciuta, vedi research.py).
 
 Gotcha da questo progetto (vedi guida di progetto per i dettagli): load_dotenv va
 chiamato con override=True per evitare che variabili d'ambiente di sistema (Windows)
@@ -79,3 +89,89 @@ def get_recent_posts(limit: int = 5) -> list[dict]:
             limit=limit,
         )
         return [dict(record) for record in result]
+
+
+def write_approved_post(
+    *,
+    post_id: str,
+    tipo: str,
+    topic: str,
+    created_at: str,
+    summary: str,
+    classe: str | None,
+    formato: str | None,
+    sources: list[dict],
+    claims: list[dict],
+) -> int:
+    """Scrive un post APPROVATO nel KG - unico punto di scrittura vera e propria di
+    tutto il grafo (chiamato SOLO da update_knowledge_graph in src/tools/kg_tool.py,
+    a sua volta invocato SOLO dal nodo KG Update dopo approvazione umana - vedi
+    src/agent/kg_update.py). Idempotente sul post_id (MERGE): una doppia scrittura
+    accidentale per lo stesso post aggiorna le stesse proprieta' invece di duplicare
+    il nodo.
+
+    Args:
+        post_id: identificatore univoco del post.
+        tipo, topic, created_at, summary: proprieta' del nodo Post.
+        classe: classe Hearthstone del mazzo trattato dal post, se nota - usata anche
+            per collegare il Topic ad altri Topic della stessa classe (RELATED_TO).
+        formato: formato di gioco del post, se noto ("standard"/"wild"/"misto").
+        sources: fonti citate nel post pubblicato, come [{"ref": ..., "tier": ...}].
+        claims: claim chiave del post, come [{"text": ..., "source": ...}] - 'source'
+            deve corrispondere esattamente a un 'ref' in sources per essere collegato
+            (SUPPORTED_BY); se non corrisponde a nessuna fonte nota, il claim viene
+            comunque scritto ma senza quel collegamento.
+
+    Returns:
+        Il numero di altri Topic della stessa 'classe' effettivamente collegati via
+        RELATED_TO (0 se 'classe' non e' nota, o se questo e' il primo Topic mai
+        scritto per quella classe - non c'e' ancora nulla a cui collegarlo). Il
+        chiamante (update_knowledge_graph in kg_tool.py) usa questo numero per non
+        dichiarare relazioni create quando in realta' non ce ne sono state.
+    """
+    with get_driver().session() as session:
+        return session.execute_write(
+            _write_approved_post_tx,
+            post_id, tipo, topic, created_at, summary, classe, formato, sources, claims,
+        )
+
+
+def _write_approved_post_tx(tx, post_id, tipo, topic, created_at, summary, classe, formato, sources, claims):
+    tx.run(
+        "MERGE (p:Post {id: $post_id}) "
+        "SET p.tipo = $tipo, p.topic = $topic, p.created_at = $created_at, p.summary = $summary",
+        post_id=post_id, tipo=tipo, topic=topic, created_at=created_at, summary=summary,
+    )
+    tx.run(
+        "MERGE (t:Topic {name: $topic}) "
+        "SET t.classe = coalesce($classe, t.classe), t.formato = coalesce($formato, t.formato) "
+        "WITH t MATCH (p:Post {id: $post_id}) MERGE (p)-[:ABOUT]->(t)",
+        topic=topic, classe=classe, formato=formato, post_id=post_id,
+    )
+    for source in sources:
+        tx.run(
+            "MERGE (s:Source {ref: $ref}) SET s.tier = coalesce($tier, s.tier) "
+            "WITH s MATCH (p:Post {id: $post_id}) MERGE (p)-[:CITES]->(s)",
+            ref=source.get("ref"), tier=source.get("tier"), post_id=post_id,
+        )
+    for claim in claims:
+        tx.run(
+            "MERGE (c:Claim {text: $text}) "
+            "WITH c MATCH (p:Post {id: $post_id}) MERGE (p)-[:MAKES_CLAIM]->(c) "
+            "WITH c "
+            "OPTIONAL MATCH (s:Source {ref: $source}) "
+            "FOREACH (_ IN CASE WHEN s IS NULL THEN [] ELSE [1] END | MERGE (c)-[:SUPPORTED_BY]->(s))",
+            text=claim.get("text"), source=claim.get("source"), post_id=post_id,
+        )
+    if not classe:
+        return 0
+    result = tx.run(
+        "MATCH (t:Topic {name: $topic}) "
+        "MATCH (other:Topic) WHERE other.classe = $classe AND other.name <> $topic "
+        "MERGE (t)-[:RELATED_TO]->(other) MERGE (other)-[:RELATED_TO]->(t) "
+        "RETURN count(other) AS n",
+        topic=topic, classe=classe,
+    )
+    record = result.single()
+    return record["n"] if record else 0
+

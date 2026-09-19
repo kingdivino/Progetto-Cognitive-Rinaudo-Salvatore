@@ -14,6 +14,11 @@ Cosa verifica in piu' rispetto a 04_test_planner.py:
   src/tools/search_tool.py).
 - Estrazione finale strutturata dei claim raccolti, ognuno con la fonte.
 
+Per testare un post diverso dal primo del piano (di default sempre post_plan[0] -
+vedi RESEARCH_POST_INDEX in src/agent/research.py), impostare la variabile
+d'ambiente RESEARCH_POST_INDEX (0-based) prima di lanciare, es.:
+    set RESEARCH_POST_INDEX=3 (PowerShell: $env:RESEARCH_POST_INDEX=3)
+
 Come eseguirlo (dalla cartella del progetto, con il venv attivo):
     python -u notebooks/06_test_research.py
 """
@@ -33,12 +38,17 @@ from src.agent.graph import build_graph  # noqa: E402 (import dopo sys.path/load
 
 def main():
     graph = build_graph()
+    # thread_id richiesto da LangGraph perche' il grafo ora ha un checkpointer
+    # (serve al nodo Human Review, roadmap punto 7 - vedi src/agent/graph.py).
+    # Questo test non gestisce la revisione umana: si ferma quando il grafo la
+    # raggiunge e la segnala sotto, invece di rispondere all'interrupt.
+    config = {"configurable": {"thread_id": "test-06-research"}}
     initial_state = {
         "user_input": "pianifica i prossimi post del blog e fai ricerca sul primo",
         "reasoning_trace": [],
     }
     wall_start = time.perf_counter()
-    result = graph.invoke(initial_state)
+    result = graph.invoke(initial_state, config=config)
     wall_elapsed = time.perf_counter() - wall_start
 
     print("\n=== Reasoning trace ===")
@@ -74,8 +84,16 @@ def main():
     print(f"\n=== Claim raccolti ({len(claims)}) ===")
     for i, c in enumerate(claims, start=1):
         flag = "" if c.get("source_well_formed", True) else "  [FONTE NON CONFORME - verificare a mano]"
+        if c.get("format_valid") is False:
+            flag += "  [CARTA NON LEGALE IN STANDARD - verificare a mano]"
+        if c.get("class_valid") is False:
+            flag += "  [CARTA DI CLASSE SBAGLIATA PER IL MAZZO - verificare a mano]"
+        if c.get("source_tier") == "opinione_singola":
+            flag += "  [FONTE = OPINIONE INDIVIDUALE - verificare se generalizza a torto]"
+        if c.get("source_well_formed", True) and c.get("source_grounded") is False:
+            flag += "  [FONTE NON RISCONTRATA IN NESSUNA OSSERVAZIONE REALE - probabile fabbricazione, SCARTARE]"
         print(f"\n{i}. {c.get('claim')}")
-        print(f"   Fonte: {c.get('source')}{flag}")
+        print(f"   Fonte: {c.get('source')}{flag}  (tier: {c.get('source_tier', '?')}, grounded: {c.get('source_grounded')})")
 
     if not claims:
         print("\n[ATTENZIONE] Nessun claim raccolto - controlla il reasoning_trace sopra per l'errore "
@@ -88,6 +106,14 @@ def main():
     for key, seconds in timings.items():
         print(f"- {key}: {seconds:.1f}s")
     print(f"- tempo totale wall-clock (graph.invoke): {wall_elapsed:.1f}s")
+
+    if "__interrupt__" in result:
+        print(
+            "\n[INFO] Il grafo si e' fermato al nodo Human Review (interrupt) dopo "
+            "aver generato la bozza sopra - normale, questo test non gestisce la "
+            "revisione umana. Vedi notebooks/09_test_human_review.py per il test "
+            "end-to-end con approvazione/modifica/rigenerazione."
+        )
 
 
 if __name__ == "__main__":
