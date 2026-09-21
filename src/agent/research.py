@@ -819,7 +819,6 @@ def research_topic(state: AgentState) -> AgentState:
             claims_dicts.append(claim_dict)
 
         research_summary = {"claims": claims_dicts, "tools_used": tools_used}
-        reasoning_trace.append(f"[Research] Riassunto finale: {len(summary.claims)} claim raccolti.")
         if n_malformed:
             reasoning_trace.append(
                 f"[Research] [WARNING] {n_malformed}/{len(summary.claims)} claim con fonte non nel "
@@ -833,8 +832,7 @@ def research_topic(state: AgentState) -> AgentState:
                 f"[Research] [WARNING] {n_ungrounded}/{len(summary.claims)} claim hanno una fonte nel "
                 "formato giusto ma NON riscontrabile in nessuna osservazione realmente ottenuta in "
                 "questa ricerca (tool mai chiamato, o contenuto citato mai comparso in un'osservazione) "
-                "- probabile fabbricazione, piu' grave di un semplice formato non conforme: SCARTARE "
-                "questi claim prima di usarli nel post (campo 'source_grounded': False)."
+                "- probabile fabbricazione (campo 'source_grounded': False)."
             )
         n_format_invalid = sum(1 for c in claims_dicts if c.get("format_valid") is False)
         if n_format_invalid:
@@ -862,13 +860,11 @@ def research_topic(state: AgentState) -> AgentState:
             )
         n_mode_invalid = sum(1 for c in claims_dicts if c.get("mode_valid") is False)
         if n_mode_invalid:
+            # Caso reale che ha motivato questo controllo: vedi riferimento-moduli-per-report.md.
             reasoning_trace.append(
                 f"[Research] [WARNING] {n_mode_invalid} claim nominano un termine esclusivo di "
                 "Battlegrounds (es. 'Trinket', 'Dark Gift') in un post su un mazzo costruito - "
-                "caso reale osservato il 16/09/2026: una patch che copriva sia Standard/Wild sia "
-                "Battlegrounds nello stesso articolo, con un claim che ha preso per errore le "
-                "modifiche Battlegrounds come se riguardassero il meta Wild. SCARTARE questi claim "
-                "prima di usarli nel post (campo 'mode_valid': False)."
+                "SCARTARE questi claim prima di usarli nel post (campo 'mode_valid': False)."
             )
 
         # Controllo "novita' presunta ma non confermata dalle date reali delle fonti"
@@ -900,6 +896,7 @@ def research_topic(state: AgentState) -> AgentState:
                     if 0 <= (_oggi_obj - _data_fonte).days <= 180:
                         _has_recent_source = True
             if not _has_recent_source:
+                # Caso reale che ha motivato questo controllo: vedi riferimento-moduli-per-report.md.
                 reasoning_trace.append(
                     "[Research] [WARNING] Il topic/motivazione di questo post presuppone che "
                     "l'argomento sia 'nuovo'/'recente', ma nessuna fonte search_web di questa "
@@ -909,12 +906,8 @@ def research_topic(state: AgentState) -> AgentState:
                         if not _has_any_dated_source
                         else " (le date trovate sono piu' vecchie)"
                     )
-                    + " - caso reale osservato il 17/09/2026: un post su 'nuovi percorsi di "
-                    "missioni' basato su articoli Blizzard reali ma di una patch molto piu' "
-                    "vecchia (24.2) della serie attuale, presentati come una novita' senza che "
-                    "nessuna data confermasse la recenza. Non e' detto che il contenuto sia "
-                    "sbagliato (l'evento potrebbe non avere una data ufficiale chiara), ma la "
-                    "premessa di attualita' va controllata a mano prima di pubblicare."
+                    + " - non e' detto che il contenuto sia sbagliato, ma la premessa di attualita' "
+                    "va controllata a mano prima di pubblicare."
                 )
     except Exception as e:
         llm_time_total += time.perf_counter() - _extraction_start

@@ -12,7 +12,7 @@ import requests
 META_PERIOD_URL = "https://hsreplay.net/api/v1/constructed/meta_period/latest/"
 CACHE_PATH = os.path.join("data", "raw", "hsreplay", "standard_legal_sets.json")
 
-# Elenco mantenuto a mano (nessun endpoint pubblico espone la rotazione per intero).
+
 STANDARD_LEGAL_SETS_MANUAL = {
     "CORE", "CORE_HIDDEN",          # Basic/Core Set, legale per sempre
     "EVENT",                        # carte da eventi stagionali (18 carte, ruotano come un mini-set)
@@ -30,8 +30,7 @@ ALWAYS_STANDARD_LEGAL = {"CORE", "CORE_HIDDEN"}
 
 def fetch_standard_legal_sets() -> set[str]:
     """Ritorna l'insieme dei codici set (formato HearthstoneJSON) attualmente legali
-    in Standard: la lista mantenuta a mano sopra, unita (best-effort, mai l'unica
-    fonte) a eventuali codici nuovi dall'endpoint HSReplay."""
+    in Standard: la lista unita a eventuali codici nuovi dall'endpoint HSReplay."""
     sets = set(STANDARD_LEGAL_SETS_MANUAL)
     try:
         resp = requests.get(META_PERIOD_URL, timeout=10)
@@ -40,7 +39,7 @@ def fetch_standard_legal_sets() -> set[str]:
         extra = {s["code"] for s in payload.get("standard_legal_sets", []) if s.get("code")}
         sets |= extra
     except Exception:
-        pass  # rete irraggiungibile o risposta inattesa - va bene, la lista a mano basta da sola
+        pass  # rete irraggiungibile o risposta inattesa
     return sets | ALWAYS_STANDARD_LEGAL
 
 
@@ -111,10 +110,6 @@ def mentions_battlegrounds_only(text: str) -> bool:
     return any(kw in t for kw in BATTLEGROUNDS_ONLY_KEYWORDS)
 
 
-
-# Nella community italiana di Hearthstone "il meta" e' maschile ("la meta" in
-# italiano standard significa "traguardo") - rete di sicurezza per quando il
-# modello lo scrive al femminile nonostante la regola nel prompt.
 _META_GENDER_FIXES = [
     (r"\bdella\b(?=\s+meta\b)", "del"),
     (r"\bnella\b(?=\s+meta\b)", "nel"),
@@ -132,8 +127,7 @@ _META_GENDER_FIXES = [
 def fix_meta_gender(text: str) -> tuple[str, int]:
     """Corregge l'articolo/preposizione articolata quando precede DIRETTAMENTE la
     parola "meta" (es. "la meta" -> "il meta"), convenzione maschile della community
-    italiana. Copre solo l'adiacenza diretta (un aggettivo in mezzo, es. "la nuova
-    meta", non viene corretto). Ritorna (testo_corretto, numero_di_sostituzioni)."""
+    italiana. Copre solo l'adiacenza diretta. Ritorna (testo_corretto, numero_di_sostituzioni)."""
     if not text:
         return text, 0
     n_fixes = 0

@@ -74,7 +74,12 @@ di questo agente:
   italiano standard "meta" al femminile significherebbe "traguardo/obiettivo", un
   significato diverso da quello inteso qui - la community italiana di Hearthstone usa
   questo prestito al maschile).
-- Quando un claim verificato contiene gia' un ragionamento specifico (es. "la carta X ha l'effetto Y, quindi conviene Z"), PRESERVA quella specificita' nel testo - nome della carta, effetto reale, implicazione concreta - invece di riformularla in una frase piu' generica o vaga: e' proprio questa specificita' verificabile, e non la genericita', il valore che distingue il post da un testo scritto senza ricerca a monte.
+- Quando un claim verificato contiene gia' un ragionamento specifico 
+  (es. "la carta X ha l'effetto Y, quindi conviene Z"), PRESERVA quella specificita' 
+  nel testo - nome della carta, effetto reale, implicazione concreta - invece di 
+  riformularla in una frase piu' generica o vaga: e' proprio questa specificita' 
+  verificabile, e non la genericita', il valore che distingue il post da un testo 
+  scritto senza ricerca a monte.
 """
 
 
@@ -214,8 +219,7 @@ def draft_post(state: AgentState) -> AgentState:
         if not trusted_claims:
             reasoning_trace.append(
                 "[Format] [WARNING] Nessun claim verificato era disponibile per questo post - "
-                "questa bozza e' generica per costruzione, va trattata con priorita' alta nella "
-                "revisione umana (roadmap: nodo Human Review)."
+                "bozza generica per costruzione."
             )
             # A 0 claim il post dovrebbe restare generico, ma il fallback puo' non
             # bastare se il testo contiene comunque cifre statistiche (da Topic/

@@ -1,35 +1,16 @@
 """
-Test end-to-end del grafo LangGraph completo e del ciclo sull'INTERO piano pianificato:
-Planner -> [select_next_post -> Research/ReAct -> Format/Draft -> Human Review ->
-KG Update] -> torna a select_next_post per il post successivo, finche' il piano non
-e' esaurito (roadmap punti 4-8, grafo completo - vedi src/agent/orchestrator.py per
-il ciclo, aggiunto l'11/09/2026 al posto della vecchia scorciatoia
-RESEARCH_POST_INDEX che elaborava sempre un solo post scelto a mano).
+Test end-to-end del grafo LangGraph completo: Planner -> [select_next_post ->
+Research/ReAct -> Format/Draft -> Human Review -> KG Update] -> torna a
+select_next_post finche' il piano non e' esaurito. Verifica che KG Update scriva sul
+grafo SOLO dopo approvazione umana, e che il ciclo elabori tutti i post pianificati
+(non solo il primo), rileggendo il KG alla fine per conferma indipendente.
 
-Cosa verifica in piu' rispetto a 09_test_human_review.py:
-- Il nodo KG Update scrive sul Knowledge Graph SOLO quando la revisione umana di un
-  post si conclude con "approva"/"modifica" (review_decision == "approved") -
-  requisito esplicito della specifica ("Il KG si aggiorna SOLO dopo approvazione").
-  "rigenera" e "scarta" lo saltano entrambi, ma con routing diverso: "rigenera" torna
-  al nodo Format per lo STESSO post, "scarta" passa al post SUCCESSIVO del piano.
-- Il grafo elabora TUTTI i post pianificati in sequenza, non solo il primo - questo
-  test mostra live (stampando via via il reasoning_trace) l'avanzamento da un post al
-  successivo, e alla fine rilegge il KG con query_knowledge_graph per dimostrare che
-  TUTTI i post approvati durante questo run compaiono davvero nel grafo (non solo il
-  messaggio di conferma di ogni singolo tool).
+Test INTERATTIVO (stessa modalita' di 09_test_human_review.py): chiede una decisione
+da tastiera per ogni post del piano. Stessi prerequisiti (indice RAG costruito,
+TAVILY_API_KEY nel .env, Ollama/Neo4j raggiungibili - qui Neo4j serve anche per la
+scrittura finale, non solo per la query iniziale del Research).
 
-Questo test e' INTERATTIVO, stessa modalita' di 09_test_human_review.py: si ferma e
-chiede una decisione da tastiera per OGNI post del piano (non e' un errore se il
-processo sembra "in attesa" - lo e' davvero, e con un piano di 6 post di default
-succedera' fino a 6 volte in questo singolo run, oltre a un giro extra per ogni
-"rigenera"/"scarta").
-
-Stessi prerequisiti di 09_test_human_review.py (indice RAG costruito, TAVILY_API_KEY
-nel .env, Ollama/Neo4j raggiungibili dal proprio venv Windows - qui Neo4j serve
-davvero, non solo per la query iniziale del Research ma per la scrittura finale).
-
-Come eseguirlo (dalla cartella del progetto, con il venv attivo):
-    python -u notebooks/10_test_kg_update.py
+Esecuzione: python -u notebooks/10_test_kg_update.py
 """
 import os
 import sys

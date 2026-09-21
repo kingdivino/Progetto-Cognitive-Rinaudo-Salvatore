@@ -67,7 +67,7 @@ def load_archetype_signals(
 
     top_winrate = df.nlargest(3, "winrate")
     bottom_winrate = df.nsmallest(2, "winrate")
-    special = df[df["has_special_deckbuild"] == True].head(3)  # noqa: E712 (confronto esplicito piu' chiaro qui)
+    special = df[df["has_special_deckbuild"] == True].head(3) 
 
     picked = pd.concat([top_winrate, bottom_winrate, special]).drop_duplicates(subset="deck_id")
     picked = picked.head(top_n)
@@ -83,7 +83,6 @@ def load_archetype_signals(
             "formato": row["formato"],  # "Standard" o "Wild" (vedi format_rules.py)
         }
         # Costo in polvere (calcolato localmente, notebooks/03) - omesso se assente
-        # invece di un fuorviante 0/None.
         if pd.notna(row["costo_polvere"]):
             entry["costo_polvere"] = int(row["costo_polvere"])
         result.append(entry)
